@@ -1,10 +1,12 @@
-# ssh-vault: SSH Agent-Based Secret Encryption
+# ssh-tresor: SSH Agent-Based Secret Encryption
 
 ## Overview
 
-`ssh-vault` is a command-line tool written in Rust that encrypts and decrypts secrets using keys held in an SSH agent. It derives encryption keys by asking the SSH agent to sign a random nonce, then uses the signature as key material for symmetric encryption.
+`ssh-tresor` is a command-line tool written in Rust that encrypts and decrypts secrets using keys held in an SSH agent. It derives encryption keys by asking the SSH agent to sign a random nonce, then uses the signature as key material for symmetric encryption.
 
 This approach allows secrets to be decrypted only when the corresponding SSH key is loaded in an agent, with no passphrase prompts required at decryption time.
+
+**Multi-key support:** A vault can be encrypted for multiple SSH keys (LUKS-style slots). Each slot encrypts a master key, which in turn encrypts the data. Any of the authorized keys can decrypt the vault.
 
 ## Use Case
 
@@ -12,7 +14,7 @@ Primary use case: storing encrypted credentials (e.g., IMAP passwords) in config
 
 Example integration with meli email client:
 ```toml
-server_password_command = "ssh-vault decrypt ~/.config/meli/imap.vault"
+server_password_command = "ssh-tresor decrypt ~/.config/meli/imap.vault"
 ```
 
 Works seamlessly over SSH with agent forwarding (`ssh -A`).
@@ -20,11 +22,14 @@ Works seamlessly over SSH with agent forwarding (`ssh -A`).
 ## CLI Interface
 
 ```
-ssh-vault [OPTIONS] <COMMAND>
+ssh-tresor [OPTIONS] <COMMAND>
 
 Commands:
-  encrypt     Encrypt data using an SSH key from the agent
+  encrypt     Encrypt data using SSH keys from the agent
   decrypt     Decrypt data using an SSH key from the agent
+  add-key     Add a key to an existing vault
+  remove-key  Remove a key from an existing vault
+  list-slots  List key slots in a vault
   list-keys   List available keys in the SSH agent
 
 Options:
@@ -35,22 +40,24 @@ Options:
 ### encrypt
 
 ```
-ssh-vault encrypt [OPTIONS] [INPUT]
+ssh-tresor encrypt [OPTIONS] [INPUT]
 
 Arguments:
   [INPUT]  Input file (default: stdin, use "-" explicitly for stdin)
 
 Options:
-  -k, --key <FINGERPRINT>  SSH key fingerprint to use (default: first available key)
+  -k, --key <FINGERPRINT>  SSH key fingerprint(s) to use (can be specified multiple times)
   -o, --output <FILE>      Output file (default: stdout)
   -a, --armor              Output as base64 with header/footer (default: binary)
   -h, --help               Print help
 ```
 
+If no `-k` is specified, uses the first available key. Multiple `-k` flags create a multi-key vault.
+
 ### decrypt
 
 ```
-ssh-vault decrypt [OPTIONS] [INPUT]
+ssh-tresor decrypt [OPTIONS] [INPUT]
 
 Arguments:
   [INPUT]  Input file (default: stdin, use "-" explicitly for stdin)
@@ -60,15 +67,63 @@ Options:
   -h, --help           Print help
 ```
 
-Note: The key fingerprint is stored in the encrypted blob, so no `-k` option is needed for decryption.
+Automatically tries all keys in the agent and uses the first matching slot.
+
+### add-key
+
+```
+ssh-tresor add-key [OPTIONS] --key <FINGERPRINT> [INPUT]
+
+Arguments:
+  [INPUT]  Input vault file (default: stdin)
+
+Options:
+  -k, --key <FINGERPRINT>  SSH key fingerprint to add
+  -o, --output <FILE>      Output file (default: stdout)
+  -a, --armor              Output as base64 with header/footer
+  -h, --help               Print help
+```
+
+Requires access to an existing authorized key to decrypt the master key.
+
+### remove-key
+
+```
+ssh-tresor remove-key [OPTIONS] --key <FINGERPRINT> [INPUT]
+
+Arguments:
+  [INPUT]  Input vault file (default: stdin)
+
+Options:
+  -k, --key <FINGERPRINT>  SSH key fingerprint to remove
+  -o, --output <FILE>      Output file (default: stdout)
+  -a, --armor              Output as base64 with header/footer
+  -h, --help               Print help
+```
+
+Cannot remove the last key from a vault.
+
+### list-slots
+
+```
+ssh-tresor list-slots [INPUT]
+
+Arguments:
+  [INPUT]  Input vault file (default: stdin)
+
+Options:
+  -h, --help  Print help
+```
+
+Shows all key slots and marks which ones are available in the current agent.
 
 ### list-keys
 
 ```
-ssh-vault list-keys [OPTIONS]
+ssh-tresor list-keys [OPTIONS]
 
 Options:
-  --md5     Show MD5 fingerprints (default: SHA256)
+  --md5       Show MD5 fingerprints (default: SHA256)
   -h, --help  Print help
 ```
 
@@ -80,33 +135,38 @@ SHA256:def456... RSA-4096 work-laptop
 
 ## Cryptographic Design
 
-### Encryption Process
+### Encryption Process (Multi-Key)
 
 1. Connect to SSH agent via `SSH_AUTH_SOCK` environment variable
-2. Select key by fingerprint, or use first available key
-3. Generate 32 random bytes as challenge/nonce
-4. Request SSH agent to sign the challenge using the selected key
-5. Derive AES-256 key: `key = SHA-256(signature)`
-6. Generate 12 random bytes as AES-GCM nonce
-7. Encrypt plaintext using AES-256-GCM with the derived key
-8. Construct output blob (see Wire Format below)
+2. Select keys by fingerprint, or use first available key
+3. Generate 32 random bytes as **master key**
+4. For each selected SSH key:
+   a. Generate 32 random bytes as challenge
+   b. Request SSH agent to sign the challenge
+   c. Derive slot key: `slot_key = SHA-256(signature)`
+   d. Generate 12 random bytes as slot nonce
+   e. Encrypt master key using AES-256-GCM with slot key
+5. Generate 12 random bytes as data nonce
+6. Encrypt plaintext using AES-256-GCM with master key
+7. Construct output blob (see Wire Format below)
 
 ### Decryption Process
 
 1. Connect to SSH agent via `SSH_AUTH_SOCK`
-2. Parse input blob, extract key fingerprint and challenge
-3. Find matching key in agent by fingerprint
-4. Request SSH agent to sign the stored challenge
-5. Derive AES-256 key: `key = SHA-256(signature)`
-6. Decrypt ciphertext using AES-256-GCM
-7. Output plaintext
+2. Parse input blob, enumerate slots
+3. For each key in agent:
+   a. Check if a matching slot exists (by fingerprint)
+   b. If found: sign the slot's challenge, derive slot key, decrypt master key
+   c. If master key decryption succeeds, decrypt data and return
+4. If no matching slot found, return error
 
 ### Security Properties
 
 - **No key material on disk**: Private keys never leave the SSH agent
 - **Deterministic key derivation**: Same challenge + same key = same signature = same AES key
 - **Authenticated encryption**: AES-GCM provides confidentiality and integrity
-- **Key binding**: Encrypted blob is bound to a specific SSH key via fingerprint
+- **Key binding**: Each slot is bound to a specific SSH key via fingerprint
+- **Master key isolation**: Compromise of one slot key doesn't reveal other slot keys
 
 ### Signature Algorithm Selection
 
@@ -115,37 +175,62 @@ When requesting a signature from the agent:
 - For Ed25519 keys: Use default `ssh-ed25519`
 - For ECDSA keys: Use appropriate `ecdsa-sha2-*` variant
 
-## Wire Format
+## Wire Format (v2)
 
 ### Binary Format
 
 ```
-+------------------+
-| Header (8 bytes) |  Magic: "SSHVAULT" (0x53 0x53 0x48 0x56 0x41 0x55 0x4C 0x54)
-+------------------+
-| Version (1 byte) |  Format version: 0x01
-+------------------+
-| Fingerprint      |  SHA-256 fingerprint of public key (32 bytes)
-+------------------+
-| Challenge        |  Random challenge sent to agent (32 bytes)
-+------------------+
-| GCM Nonce        |  AES-GCM nonce (12 bytes)
-+------------------+
-| Ciphertext       |  AES-256-GCM encrypted data (variable length)
-|                  |  Includes 16-byte auth tag appended by AES-GCM
-+------------------+
++---------------------+
+| Magic (8 bytes)     |  "SSHVAULT" (0x53 0x53 0x48 0x56 0x41 0x55 0x4C 0x54)
++---------------------+
+| Version (1 byte)    |  0x02
++---------------------+
+| Slot count (1 byte) |  Number of key slots (1-255)
++---------------------+
+| Slot 0              |  First key slot (124 bytes)
++---------------------+
+| Slot 1              |  Second key slot (124 bytes)
++---------------------+
+| ...                 |  Additional slots
++---------------------+
+| Data nonce          |  AES-GCM nonce for data (12 bytes)
++---------------------+
+| Ciphertext          |  AES-256-GCM encrypted data (variable)
+|                     |  Includes 16-byte auth tag
++---------------------+
 ```
 
-Total overhead: 8 + 1 + 32 + 32 + 12 + 16 = 101 bytes + ciphertext length
+### Slot Format (124 bytes each)
+
+```
++----------------------+
+| Fingerprint (32)     |  SHA-256 fingerprint of public key
++----------------------+
+| Challenge (32)       |  Random challenge signed by agent
++----------------------+
+| Nonce (12)           |  AES-GCM nonce for master key encryption
++----------------------+
+| Encrypted key (48)   |  Master key (32) + auth tag (16)
++----------------------+
+```
+
+### Size Calculation
+
+- Header: 10 bytes (magic + version + slot count)
+- Per slot: 124 bytes
+- Data overhead: 12 bytes (nonce) + 16 bytes (auth tag)
+
+Single-key vault: 10 + 124 + 12 + 16 = 162 bytes + ciphertext
+Three-key vault: 10 + 372 + 12 + 16 = 410 bytes + ciphertext
 
 ### Armored Format
 
 When `--armor` is specified, output is base64-encoded with header/footer:
 
 ```
------BEGIN SSH VAULT-----
-U1NIVkFVTFQB... (base64-encoded binary blob)
------END SSH VAULT-----
+-----BEGIN SSH TRESOR-----
+U1NIVkFVTFQC... (base64-encoded binary blob)
+-----END SSH TRESOR-----
 ```
 
 Decryption automatically detects armored vs binary format.
@@ -154,17 +239,17 @@ Decryption automatically detects armored vs binary format.
 
 ```toml
 [dependencies]
-ssh-agent-client-rs = "0.1"   # SSH agent protocol client
+ssh-agent-client-rs = "1.1"   # SSH agent protocol client
 ssh-key = "0.6"               # SSH key types and fingerprinting
+ssh-encoding = "0.2"          # SSH wire format encoding
 aes-gcm = "0.10"              # AES-256-GCM encryption
 sha2 = "0.10"                 # SHA-256 for key derivation
 rand = "0.8"                  # Cryptographically secure random
 base64 = "0.22"               # Armored format encoding
 clap = { version = "4", features = ["derive"] }  # CLI parsing
-thiserror = "1"               # Error handling
+thiserror = "2"               # Error handling
+md5 = "0.7"                   # MD5 fingerprint display
 ```
-
-Note: Evaluate `ssh-agent-client-rs` vs direct implementation. If the crate is unmaintained or insufficient, implement the agent protocol directly using the `ssh-key` crate for parsing and a Unix socket connection. The SSH agent protocol is simple (RFC 4251 framing + a few message types).
 
 ## Error Handling
 
@@ -172,29 +257,38 @@ Exit codes:
 - `0`: Success
 - `1`: General error (I/O, parsing)
 - `2`: Agent connection failed (SSH_AUTH_SOCK not set, socket not accessible)
-- `3`: Key not found (specified fingerprint not in agent)
+- `3`: Key not found (specified fingerprint not in agent, or no matching slot)
 - `4`: Decryption failed (wrong key, corrupted data, tampered ciphertext)
 
 Error messages should be written to stderr and be actionable:
 ```
 Error: SSH agent not available
 Hint: Is SSH_AUTH_SOCK set? Try running: eval $(ssh-agent) && ssh-add
+
+Error: No matching slot found
+Hint: None of the keys in your SSH agent can decrypt this vault
 ```
 
 ## Testing Strategy
 
 ### Unit Tests
 - Wire format serialization/deserialization roundtrip
+- Slot format roundtrip
 - Base64 armor/dearmor roundtrip
 - Fingerprint parsing and matching
+- Master key encryption/decryption
 
 ### Integration Tests
-- Full encrypt/decrypt cycle with mock agent or real agent
+- Full encrypt/decrypt cycle with real agent
+- Multi-key encrypt, decrypt with each key individually
+- Add key to existing vault
+- Remove key from vault
 - Key selection by fingerprint
 - Stdin/stdout operation
 - File input/output operation
 - Armored format roundtrip
-- Error cases (no agent, key not found, corrupted input)
+- Error cases (no agent, key not found, no matching slot, corrupted input)
+- Binary data and large files
 
 ### Manual Testing
 - Verify interop with OpenSSH agent
@@ -202,9 +296,8 @@ Hint: Is SSH_AUTH_SOCK set? Try running: eval $(ssh-agent) && ssh-add
 - Test with RSA, Ed25519, and ECDSA keys
 - Test over SSH with agent forwarding
 
-## Future Considerations (Out of Scope for v1)
+## Future Considerations
 
-- Multiple recipients (encrypt to several keys)
 - Key comment matching (`-k user@host` instead of fingerprint)
 - Streaming encryption for large files
 - FIDO2/hardware key support (if agent supports it)
@@ -215,41 +308,58 @@ Hint: Is SSH_AUTH_SOCK set? Try running: eval $(ssh-agent) && ssh-add
 
 ```bash
 # List available keys
-$ ssh-vault list-keys
+$ ssh-tresor list-keys
 SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s ED25519 harald@workstation
 SHA256:2bGQ+FN/wdGvPwRCJdBe8bMPgIQCk0j8Fq1XVfLbLHs RSA-4096 harald@backup
 
 # Encrypt a password (uses first key by default)
-$ echo -n "super-secret-password" | ssh-vault encrypt -a
------BEGIN SSH VAULT-----
-U1NIVkFVTFQBnxqK8mF3vR...
------END SSH VAULT-----
+$ echo -n "super-secret-password" | ssh-tresor encrypt -a
+-----BEGIN SSH TRESOR-----
+U1NIVkFVTFQCnxqK8mF3vR...
+-----END SSH TRESOR-----
 
-# Encrypt using specific key, save to file
-$ echo -n "super-secret-password" | ssh-vault encrypt -k SHA256:2bGQ+FN -o ~/.secrets/mail.vault
+# Encrypt for multiple keys
+$ echo -n "super-secret-password" | ssh-tresor encrypt -k SHA256:uNiV -k SHA256:2bGQ -o secret.vault
 
-# Decrypt
-$ ssh-vault decrypt ~/.secrets/mail.vault
+# List slots in a vault
+$ ssh-tresor list-slots secret.vault
+Vault contains 2 key slot(s):
+  Slot 1: SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s ED25519 harald@workstation [AVAILABLE]
+  Slot 2: SHA256:2bGQ+FN/wdGvPwRCJdBe8bMPgIQCk0j8Fq1XVfLbLHs RSA-4096 harald@backup [AVAILABLE]
+
+# Decrypt (auto-detects matching key)
+$ ssh-tresor decrypt secret.vault
 super-secret-password
 
+# Add another key to existing vault
+$ ssh-tresor add-key -k SHA256:newkey < secret.vault > updated.vault
+
+# Remove a key from vault
+$ ssh-tresor remove-key -k SHA256:2bGQ < secret.vault > reduced.vault
+
 # Use in a password command
-$ ssh-vault decrypt ~/.secrets/mail.vault | xargs -0 some-command
+$ ssh-tresor decrypt ~/.secrets/mail.vault | xargs -0 some-command
 ```
 
 ## Project Structure
 
 ```
-ssh-vault/
+ssh-tresor/
 ├── Cargo.toml
+├── CLAUDE.md             # Claude Code guidance
 ├── src/
 │   ├── main.rs           # CLI entry point, argument parsing
-│   ├── lib.rs            # Public API (encrypt, decrypt, list_keys)
+│   ├── lib.rs            # Public API (encrypt, decrypt, add_key, remove_key, list_slots, list_keys)
 │   ├── agent.rs          # SSH agent connection and protocol
-│   ├── crypto.rs         # Key derivation and AES-GCM operations
-│   ├── format.rs         # Wire format serialization/deserialization
-│   └── error.rs          # Error types
-└── tests/
-    └── integration.rs    # Integration tests
+│   ├── crypto.rs         # Key derivation, master key, and AES-GCM operations
+│   ├── format.rs         # Wire format: VaultBlob, Slot serialization
+│   └── error.rs          # Error types with exit codes
+├── tests/
+│   ├── integration.sh    # Shell-based integration tests
+│   └── integration_runner.rs  # Cargo test runner for integration tests
+└── .github/
+    └── workflows/
+        └── ci.yml        # GitHub Actions CI
 ```
 
 ## References

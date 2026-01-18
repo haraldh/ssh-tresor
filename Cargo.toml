@@ -1,0 +1,24 @@
+[package]
+name = "ssh-tresor"
+version = "0.1.0"
+edition = "2021"
+description = "Encrypt and decrypt secrets using SSH agent keys"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/haraldh/ssh-tresor"
+keywords = ["ssh", "encryption", "secrets", "agent"]
+categories = ["cryptography", "command-line-utilities"]
+
+[dependencies]
+ssh-agent-client-rs = "1.1"
+ssh-key = { version = "0.6", features = ["ed25519", "rsa", "p256", "p384"] }
+aes-gcm = "0.10"
+sha2 = "0.10"
+rand = "0.8"
+base64 = "0.22"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"
+md5 = "0.7"
+ssh-encoding = "0.2"
+
+[dev-dependencies]
+tempfile = "3"

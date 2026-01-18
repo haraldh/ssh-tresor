@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use clap::{Parser, Subcommand};
 use ssh_tresor::{agent, error, format::VaultBlob};
 use std::fs;
@@ -16,14 +17,14 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Encrypt data using an SSH key from the agent
+    /// Encrypt data using SSH keys from the agent
     Encrypt {
         /// Input file (default: stdin, use "-" explicitly for stdin)
         input: Option<PathBuf>,
 
-        /// SSH key fingerprint to use (default: first available key)
-        #[arg(short = 'k', long = "key")]
-        fingerprint: Option<String>,
+        /// SSH key fingerprint(s) to use (can be specified multiple times)
+        #[arg(short = 'k', long = "key", action = clap::ArgAction::Append)]
+        fingerprints: Vec<String>,
 
         /// Output file (default: stdout)
         #[arg(short, long)]
@@ -44,6 +45,48 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
+    /// Add a key to an existing vault
+    AddKey {
+        /// Input vault file (default: stdin)
+        input: Option<PathBuf>,
+
+        /// SSH key fingerprint to add
+        #[arg(short = 'k', long = "key", required = true)]
+        fingerprint: String,
+
+        /// Output file (default: stdout)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output as base64 with header/footer (default: preserve input format)
+        #[arg(short, long)]
+        armor: bool,
+    },
+
+    /// Remove a key from an existing vault
+    RemoveKey {
+        /// Input vault file (default: stdin)
+        input: Option<PathBuf>,
+
+        /// SSH key fingerprint to remove
+        #[arg(short = 'k', long = "key", required = true)]
+        fingerprint: String,
+
+        /// Output file (default: stdout)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Output as base64 with header/footer (default: preserve input format)
+        #[arg(short, long)]
+        armor: bool,
+    },
+
+    /// List key slots in a vault
+    ListSlots {
+        /// Input vault file (default: stdin)
+        input: Option<PathBuf>,
+    },
+
     /// List available keys in the SSH agent
     ListKeys {
         /// Show MD5 fingerprints (default: SHA256)
@@ -58,11 +101,24 @@ fn main() -> ExitCode {
     let result = match cli.command {
         Commands::Encrypt {
             input,
+            fingerprints,
+            output,
+            armor,
+        } => cmd_encrypt(input, &fingerprints, output, armor),
+        Commands::Decrypt { input, output } => cmd_decrypt(input, output),
+        Commands::AddKey {
+            input,
             fingerprint,
             output,
             armor,
-        } => cmd_encrypt(input, fingerprint.as_deref(), output, armor),
-        Commands::Decrypt { input, output } => cmd_decrypt(input, output),
+        } => cmd_add_key(input, &fingerprint, output, armor),
+        Commands::RemoveKey {
+            input,
+            fingerprint,
+            output,
+            armor,
+        } => cmd_remove_key(input, &fingerprint, output, armor),
+        Commands::ListSlots { input } => cmd_list_slots(input),
         Commands::ListKeys { md5 } => cmd_list_keys(md5),
     };
 
@@ -77,15 +133,18 @@ fn main() -> ExitCode {
 
 fn cmd_encrypt(
     input: Option<PathBuf>,
-    fingerprint: Option<&str>,
+    fingerprints: &[String],
     output: Option<PathBuf>,
     armor: bool,
 ) -> ssh_tresor::Result<()> {
     // Read input
     let plaintext = read_input(input)?;
 
+    // Convert fingerprints to &str slice
+    let fp_refs: Vec<&str> = fingerprints.iter().map(|s| s.as_str()).collect();
+
     // Encrypt
-    let blob = ssh_tresor::encrypt(&plaintext, fingerprint)?;
+    let blob = ssh_tresor::encrypt(&plaintext, &fp_refs)?;
 
     // Serialize output
     let output_data = if armor {
@@ -112,6 +171,109 @@ fn cmd_decrypt(input: Option<PathBuf>, output: Option<PathBuf>) -> ssh_tresor::R
 
     // Write output
     write_output(output, &plaintext)?;
+
+    Ok(())
+}
+
+fn cmd_add_key(
+    input: Option<PathBuf>,
+    fingerprint: &str,
+    output: Option<PathBuf>,
+    armor: bool,
+) -> ssh_tresor::Result<()> {
+    // Read input
+    let encrypted = read_input(input)?;
+
+    // Detect if input was armored
+    let was_armored = std::str::from_utf8(&encrypted)
+        .map(|s| s.trim().starts_with("-----BEGIN"))
+        .unwrap_or(false);
+
+    // Parse the vault blob
+    let blob = VaultBlob::from_bytes(&encrypted)?;
+
+    // Add the new key
+    let new_blob = ssh_tresor::add_key(&blob, fingerprint)?;
+
+    // Serialize output (preserve format unless --armor specified)
+    let output_data = if armor || was_armored {
+        new_blob.to_armored().into_bytes()
+    } else {
+        new_blob.to_bytes()
+    };
+
+    // Write output
+    write_output(output, &output_data)?;
+
+    Ok(())
+}
+
+fn cmd_remove_key(
+    input: Option<PathBuf>,
+    fingerprint: &str,
+    output: Option<PathBuf>,
+    armor: bool,
+) -> ssh_tresor::Result<()> {
+    // Read input
+    let encrypted = read_input(input)?;
+
+    // Detect if input was armored
+    let was_armored = std::str::from_utf8(&encrypted)
+        .map(|s| s.trim().starts_with("-----BEGIN"))
+        .unwrap_or(false);
+
+    // Parse the vault blob
+    let blob = VaultBlob::from_bytes(&encrypted)?;
+
+    // Remove the key
+    let new_blob = ssh_tresor::remove_key(&blob, fingerprint)?;
+
+    // Serialize output (preserve format unless --armor specified)
+    let output_data = if armor || was_armored {
+        new_blob.to_armored().into_bytes()
+    } else {
+        new_blob.to_bytes()
+    };
+
+    // Write output
+    write_output(output, &output_data)?;
+
+    Ok(())
+}
+
+fn cmd_list_slots(input: Option<PathBuf>) -> ssh_tresor::Result<()> {
+    // Read input
+    let encrypted = read_input(input)?;
+
+    // Parse the vault blob
+    let blob = VaultBlob::from_bytes(&encrypted)?;
+
+    // Get slot fingerprints
+    let fingerprints = ssh_tresor::list_slots(&blob);
+
+    // Try to match with keys in agent for better display
+    let agent_keys = ssh_tresor::list_keys().ok();
+
+    println!("Vault contains {} key slot(s):", fingerprints.len());
+    for (i, fp) in fingerprints.iter().enumerate() {
+        let fp_b64 = STANDARD_NO_PAD.encode(fp);
+
+        // Try to find matching key in agent
+        if let Some(ref keys) = agent_keys {
+            if let Some(key) = keys.iter().find(|k| &k.fingerprint_bytes == fp) {
+                println!(
+                    "  Slot {}: SHA256:{} {} {} [AVAILABLE]",
+                    i + 1,
+                    fp_b64,
+                    key.key_type,
+                    key.comment
+                );
+                continue;
+            }
+        }
+
+        println!("  Slot {}: SHA256:{}", i + 1, fp_b64);
+    }
 
     Ok(())
 }

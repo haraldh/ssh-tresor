@@ -1,9 +1,8 @@
-//! ssh-vault: SSH Agent-Based Secret Encryption
+//! ssh-tresor: SSH Agent-Based Secret Encryption
 //!
 //! This library provides functionality to encrypt and decrypt secrets using
-//! keys held in an SSH agent. It derives encryption keys by asking the SSH
-//! agent to sign a random nonce, then uses the signature as key material
-//! for symmetric encryption (AES-256-GCM).
+//! keys held in an SSH agent. It supports multiple keys per vault (LUKS-style slots),
+//! where each slot encrypts a master key that in turn encrypts the data.
 
 pub mod agent;
 pub mod crypto;
@@ -12,35 +11,65 @@ pub mod format;
 
 pub use agent::{AgentConnection, AgentKey};
 pub use error::{Error, Result};
-pub use format::VaultBlob;
+pub use format::{Slot, VaultBlob};
 
-/// Encrypt data using an SSH key from the agent
+/// Encrypt data using SSH keys from the agent
 ///
 /// # Arguments
 /// * `plaintext` - The data to encrypt
-/// * `fingerprint` - Optional fingerprint prefix to select a specific key.
-///                   If None, uses the first available key.
+/// * `fingerprints` - Fingerprint prefixes to select keys. If empty, uses the first available key.
 ///
 /// # Returns
-/// A `VaultBlob` containing the encrypted data and metadata needed for decryption.
-pub fn encrypt(plaintext: &[u8], fingerprint: Option<&str>) -> Result<VaultBlob> {
+/// A `VaultBlob` containing the encrypted data and slots for each key.
+pub fn encrypt(plaintext: &[u8], fingerprints: &[&str]) -> Result<VaultBlob> {
     let mut agent = AgentConnection::connect()?;
 
-    // Select the key to use
-    let key = match fingerprint {
-        Some(fp) => agent.find_key(fp)?,
-        None => agent.first_key()?,
+    // Collect keys to use
+    let keys: Vec<AgentKey> = if fingerprints.is_empty() {
+        vec![agent.first_key()?]
+    } else {
+        fingerprints
+            .iter()
+            .map(|fp| agent.find_key(fp))
+            .collect::<Result<Vec<_>>>()?
     };
 
-    encrypt_with_key(&mut agent, &key, plaintext)
+    encrypt_with_keys(&mut agent, &keys, plaintext)
 }
 
-/// Encrypt data using a specific key
-fn encrypt_with_key(
+/// Encrypt data using specific keys
+fn encrypt_with_keys(
     agent: &mut AgentConnection,
-    key: &AgentKey,
+    keys: &[AgentKey],
     plaintext: &[u8],
 ) -> Result<VaultBlob> {
+    // Generate master key
+    let master_key = crypto::generate_master_key();
+
+    // Create a slot for each key
+    let mut slots = Vec::with_capacity(keys.len());
+    for key in keys {
+        let slot = create_slot(agent, key, &master_key)?;
+        slots.push(slot);
+    }
+
+    // Encrypt the data with the master key
+    let data_nonce = crypto::generate_nonce();
+    let ciphertext = crypto::encrypt(&master_key, &data_nonce, plaintext)?;
+
+    Ok(VaultBlob {
+        slots,
+        data_nonce,
+        ciphertext,
+    })
+}
+
+/// Create a slot for a single key
+fn create_slot(
+    agent: &mut AgentConnection,
+    key: &AgentKey,
+    master_key: &[u8; 32],
+) -> Result<Slot> {
     // Generate random challenge
     let challenge = crypto::generate_challenge();
 
@@ -48,23 +77,28 @@ fn encrypt_with_key(
     let signature = agent.sign(key, &challenge)?;
 
     // Derive AES key from signature
-    let aes_key = agent::derive_key_from_signature(&signature);
+    let slot_key = agent::derive_key_from_signature(&signature);
 
-    // Generate random nonce for AES-GCM
+    // Generate nonce for this slot
     let nonce = crypto::generate_nonce();
 
-    // Encrypt the plaintext
-    let ciphertext = crypto::encrypt(&aes_key, &nonce, plaintext)?;
+    // Encrypt the master key
+    let encrypted = crypto::encrypt_master_key(&slot_key, &nonce, master_key)?;
 
-    Ok(VaultBlob {
+    let mut encrypted_key = [0u8; format::ENCRYPTED_KEY_SIZE];
+    encrypted_key.copy_from_slice(&encrypted);
+
+    Ok(Slot {
         fingerprint: key.fingerprint_bytes,
         challenge,
         nonce,
-        ciphertext,
+        encrypted_key,
     })
 }
 
 /// Decrypt a vault blob using the SSH agent
+///
+/// Tries all available keys in the agent and returns success if any slot matches.
 ///
 /// # Arguments
 /// * `blob` - The encrypted vault blob
@@ -73,27 +107,168 @@ fn encrypt_with_key(
 /// The decrypted plaintext data.
 pub fn decrypt(blob: &VaultBlob) -> Result<Vec<u8>> {
     let mut agent = AgentConnection::connect()?;
+    let keys = agent.list_keys()?;
 
-    // Find the key that was used for encryption
-    let key = agent.find_key_by_bytes(&blob.fingerprint)?;
+    // Try each key in the agent
+    for key in &keys {
+        if let Some(slot) = blob.find_slot(&key.fingerprint_bytes) {
+            match decrypt_with_slot(&mut agent, key, slot, blob) {
+                Ok(plaintext) => return Ok(plaintext),
+                Err(_) => continue, // Try next key
+            }
+        }
+    }
 
-    decrypt_with_key(&mut agent, &key, blob)
+    Err(Error::NoMatchingSlot)
 }
 
-/// Decrypt using a specific key
-fn decrypt_with_key(
+/// Decrypt using a specific slot
+fn decrypt_with_slot(
     agent: &mut AgentConnection,
     key: &AgentKey,
+    slot: &Slot,
     blob: &VaultBlob,
 ) -> Result<Vec<u8>> {
     // Request agent to sign the stored challenge
-    let signature = agent.sign(key, &blob.challenge)?;
+    let signature = agent.sign(key, &slot.challenge)?;
 
-    // Derive AES key from signature (should be the same as during encryption)
-    let aes_key = agent::derive_key_from_signature(&signature);
+    // Derive slot key from signature
+    let slot_key = agent::derive_key_from_signature(&signature);
 
-    // Decrypt the ciphertext
-    crypto::decrypt(&aes_key, &blob.nonce, &blob.ciphertext)
+    // Decrypt the master key
+    let master_key = crypto::decrypt_master_key(&slot_key, &slot.nonce, &slot.encrypted_key)?;
+
+    // Decrypt the data with the master key
+    crypto::decrypt(&master_key, &blob.data_nonce, &blob.ciphertext)
+}
+
+/// Add a key to an existing vault
+///
+/// # Arguments
+/// * `blob` - The existing vault blob
+/// * `new_fingerprint` - Fingerprint prefix of the key to add
+///
+/// # Returns
+/// A new `VaultBlob` with the additional slot.
+pub fn add_key(blob: &VaultBlob, new_fingerprint: &str) -> Result<VaultBlob> {
+    let mut agent = AgentConnection::connect()?;
+
+    // First, decrypt the master key using an existing slot
+    let master_key = recover_master_key(&mut agent, blob)?;
+
+    // Find the new key
+    let new_key = agent.find_key(new_fingerprint)?;
+
+    // Check if key already exists
+    if blob.find_slot(&new_key.fingerprint_bytes).is_some() {
+        return Err(Error::InvalidFormat(
+            "key already exists in vault".to_string(),
+        ));
+    }
+
+    // Create new slot
+    let new_slot = create_slot(&mut agent, &new_key, &master_key)?;
+
+    // Create new blob with additional slot
+    let mut new_slots = blob.slots.clone();
+    new_slots.push(new_slot);
+
+    Ok(VaultBlob {
+        slots: new_slots,
+        data_nonce: blob.data_nonce,
+        ciphertext: blob.ciphertext.clone(),
+    })
+}
+
+/// Remove a key from an existing vault
+///
+/// # Arguments
+/// * `blob` - The existing vault blob
+/// * `fingerprint` - Fingerprint prefix of the key to remove
+///
+/// # Returns
+/// A new `VaultBlob` without the specified slot.
+pub fn remove_key(blob: &VaultBlob, fingerprint: &str) -> Result<VaultBlob> {
+    let mut agent = AgentConnection::connect()?;
+
+    // First verify we can still decrypt (have access to another key)
+    let keys = agent.list_keys()?;
+
+    // Find the key to remove
+    let key_to_remove = agent.find_key(fingerprint)?;
+
+    // Count how many slots we can access after removal
+    let remaining_accessible = keys.iter().any(|k| {
+        k.fingerprint_bytes != key_to_remove.fingerprint_bytes
+            && blob.find_slot(&k.fingerprint_bytes).is_some()
+    });
+
+    if !remaining_accessible && blob.slots.len() > 1 {
+        // We might still be OK if we're removing a slot we don't have access to
+        // Check if we have access to any slot
+        let have_access = keys
+            .iter()
+            .any(|k| blob.find_slot(&k.fingerprint_bytes).is_some());
+        if !have_access {
+            return Err(Error::NoMatchingSlot);
+        }
+    }
+
+    // Cannot remove the last slot
+    if blob.slots.len() == 1 {
+        return Err(Error::InvalidFormat(
+            "cannot remove the last key from vault".to_string(),
+        ));
+    }
+
+    // Remove the slot
+    let new_slots: Vec<Slot> = blob
+        .slots
+        .iter()
+        .filter(|s| s.fingerprint != key_to_remove.fingerprint_bytes)
+        .cloned()
+        .collect();
+
+    if new_slots.len() == blob.slots.len() {
+        return Err(Error::KeyNotFound {
+            fingerprint: fingerprint.to_string(),
+        });
+    }
+
+    Ok(VaultBlob {
+        slots: new_slots,
+        data_nonce: blob.data_nonce,
+        ciphertext: blob.ciphertext.clone(),
+    })
+}
+
+/// List slot fingerprints from a vault
+pub fn list_slots(blob: &VaultBlob) -> Vec<[u8; 32]> {
+    blob.slot_fingerprints()
+}
+
+/// Recover master key from any accessible slot
+fn recover_master_key(agent: &mut AgentConnection, blob: &VaultBlob) -> Result<[u8; 32]> {
+    let keys = agent.list_keys()?;
+
+    for key in &keys {
+        if let Some(slot) = blob.find_slot(&key.fingerprint_bytes) {
+            // Request agent to sign the stored challenge
+            let signature = agent.sign(key, &slot.challenge)?;
+
+            // Derive slot key from signature
+            let slot_key = agent::derive_key_from_signature(&signature);
+
+            // Try to decrypt the master key
+            if let Ok(master_key) =
+                crypto::decrypt_master_key(&slot_key, &slot.nonce, &slot.encrypted_key)
+            {
+                return Ok(master_key);
+            }
+        }
+    }
+
+    Err(Error::NoMatchingSlot)
 }
 
 /// List all keys available in the SSH agent

@@ -22,3 +22,8 @@ ssh-encoding = "0.2"
 
 [dev-dependencies]
 tempfile = "3"
+
+[[test]]
+name = "integration"
+path = "tests/integration_runner.rs"
+harness = false

@@ -26,6 +26,9 @@ pub enum Error {
     #[error("No keys available in SSH agent\nHint: Try running: ssh-add")]
     NoKeysAvailable,
 
+    #[error("No matching slot found\nHint: None of the keys in your SSH agent can decrypt this vault")]
+    NoMatchingSlot,
+
     #[error("Decryption failed: {0}")]
     DecryptionFailed(String),
 
@@ -45,7 +48,9 @@ impl Error {
             Error::AgentNotAvailable | Error::AgentConnection(_) | Error::AgentError(_) => {
                 EXIT_AGENT_CONNECTION_FAILED
             }
-            Error::KeyNotFound { .. } | Error::NoKeysAvailable => EXIT_KEY_NOT_FOUND,
+            Error::KeyNotFound { .. } | Error::NoKeysAvailable | Error::NoMatchingSlot => {
+                EXIT_KEY_NOT_FOUND
+            }
             Error::DecryptionFailed(_) => EXIT_DECRYPTION_FAILED,
             Error::InvalidFormat(_) | Error::Io(_) | Error::Base64(_) => EXIT_GENERAL_ERROR,
         };

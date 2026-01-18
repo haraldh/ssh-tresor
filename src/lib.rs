@@ -65,11 +65,7 @@ fn encrypt_with_keys(
 }
 
 /// Create a slot for a single key
-fn create_slot(
-    agent: &mut AgentConnection,
-    key: &AgentKey,
-    master_key: &[u8; 32],
-) -> Result<Slot> {
+fn create_slot(agent: &mut AgentConnection, key: &AgentKey, master_key: &[u8; 32]) -> Result<Slot> {
     // Generate random challenge
     let challenge = crypto::generate_challenge();
 

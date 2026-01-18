@@ -43,9 +43,9 @@ pub fn decrypt(key: &[u8; 32], nonce: &[u8; NONCE_SIZE], ciphertext: &[u8]) -> R
     let cipher = Aes256Gcm::new_from_slice(key).expect("key size is correct");
     let nonce = Nonce::from_slice(nonce);
 
-    cipher
-        .decrypt(nonce, ciphertext)
-        .map_err(|_| Error::DecryptionFailed("authentication failed - wrong key or corrupted data".to_string()))
+    cipher.decrypt(nonce, ciphertext).map_err(|_| {
+        Error::DecryptionFailed("authentication failed - wrong key or corrupted data".to_string())
+    })
 }
 
 /// Encrypt a master key for storage in a slot

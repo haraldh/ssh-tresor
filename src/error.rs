@@ -26,7 +26,9 @@ pub enum Error {
     #[error("No keys available in SSH agent\nHint: Try running: ssh-add")]
     NoKeysAvailable,
 
-    #[error("No matching slot found\nHint: None of the keys in your SSH agent can decrypt this vault")]
+    #[error(
+        "No matching slot found\nHint: None of the keys in your SSH agent can decrypt this vault"
+    )]
     NoMatchingSlot,
 
     #[error("Decryption failed: {0}")]

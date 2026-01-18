@@ -56,7 +56,11 @@ impl AgentKey {
 
 impl fmt::Display for AgentKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} {} {}", self.fingerprint_str, self.key_type, self.comment)
+        write!(
+            f,
+            "{} {} {}",
+            self.fingerprint_str, self.key_type, self.comment
+        )
     }
 }
 

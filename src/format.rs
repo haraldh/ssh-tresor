@@ -66,7 +66,8 @@ impl Slot {
 
         let mut nonce = [0u8; NONCE_SIZE];
         nonce.copy_from_slice(
-            &data[FINGERPRINT_SIZE + CHALLENGE_SIZE..FINGERPRINT_SIZE + CHALLENGE_SIZE + NONCE_SIZE],
+            &data
+                [FINGERPRINT_SIZE + CHALLENGE_SIZE..FINGERPRINT_SIZE + CHALLENGE_SIZE + NONCE_SIZE],
         );
 
         let mut encrypted_key = [0u8; ENCRYPTED_KEY_SIZE];
@@ -289,7 +290,11 @@ mod tests {
     #[test]
     fn test_roundtrip_binary_multiple_slots() {
         let blob = VaultBlob {
-            slots: vec![make_test_slot(0x01), make_test_slot(0x02), make_test_slot(0x03)],
+            slots: vec![
+                make_test_slot(0x01),
+                make_test_slot(0x02),
+                make_test_slot(0x03),
+            ],
             data_nonce: [0x37; NONCE_SIZE],
             ciphertext: vec![0xde; AUTH_TAG_SIZE + 4],
         };

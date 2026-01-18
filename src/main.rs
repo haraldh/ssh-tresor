@@ -1,6 +1,6 @@
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use clap::{Parser, Subcommand};
-use ssh_tresor::{agent, error, format::VaultBlob};
+use ssh_tresor::{agent, error, format::TresorBlob};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
@@ -45,9 +45,9 @@ enum Commands {
         output: Option<PathBuf>,
     },
 
-    /// Add a key to an existing vault
+    /// Add a key to an existing tresor
     AddKey {
-        /// Input vault file (default: stdin)
+        /// Input tresor file (default: stdin)
         input: Option<PathBuf>,
 
         /// SSH key fingerprint to add
@@ -63,9 +63,9 @@ enum Commands {
         armor: bool,
     },
 
-    /// Remove a key from an existing vault
+    /// Remove a key from an existing tresor
     RemoveKey {
-        /// Input vault file (default: stdin)
+        /// Input tresor file (default: stdin)
         input: Option<PathBuf>,
 
         /// SSH key fingerprint to remove
@@ -81,9 +81,9 @@ enum Commands {
         armor: bool,
     },
 
-    /// List key slots in a vault
+    /// List key slots in a tresor
     ListSlots {
-        /// Input vault file (default: stdin)
+        /// Input tresor file (default: stdin)
         input: Option<PathBuf>,
     },
 
@@ -163,8 +163,8 @@ fn cmd_decrypt(input: Option<PathBuf>, output: Option<PathBuf>) -> ssh_tresor::R
     // Read input
     let encrypted = read_input(input)?;
 
-    // Parse the vault blob (auto-detects armored vs binary)
-    let blob = VaultBlob::from_bytes(&encrypted)?;
+    // Parse the tresor blob (auto-detects armored vs binary)
+    let blob = TresorBlob::from_bytes(&encrypted)?;
 
     // Decrypt
     let plaintext = ssh_tresor::decrypt(&blob)?;
@@ -189,8 +189,8 @@ fn cmd_add_key(
         .map(|s| s.trim().starts_with("-----BEGIN"))
         .unwrap_or(false);
 
-    // Parse the vault blob
-    let blob = VaultBlob::from_bytes(&encrypted)?;
+    // Parse the tresor blob
+    let blob = TresorBlob::from_bytes(&encrypted)?;
 
     // Add the new key
     let new_blob = ssh_tresor::add_key(&blob, fingerprint)?;
@@ -222,8 +222,8 @@ fn cmd_remove_key(
         .map(|s| s.trim().starts_with("-----BEGIN"))
         .unwrap_or(false);
 
-    // Parse the vault blob
-    let blob = VaultBlob::from_bytes(&encrypted)?;
+    // Parse the tresor blob
+    let blob = TresorBlob::from_bytes(&encrypted)?;
 
     // Remove the key
     let new_blob = ssh_tresor::remove_key(&blob, fingerprint)?;
@@ -245,8 +245,8 @@ fn cmd_list_slots(input: Option<PathBuf>) -> ssh_tresor::Result<()> {
     // Read input
     let encrypted = read_input(input)?;
 
-    // Parse the vault blob
-    let blob = VaultBlob::from_bytes(&encrypted)?;
+    // Parse the tresor blob
+    let blob = TresorBlob::from_bytes(&encrypted)?;
 
     // Get slot fingerprints
     let fingerprints = ssh_tresor::list_slots(&blob);
@@ -254,7 +254,7 @@ fn cmd_list_slots(input: Option<PathBuf>) -> ssh_tresor::Result<()> {
     // Try to match with keys in agent for better display
     let agent_keys = ssh_tresor::list_keys().ok();
 
-    println!("Vault contains {} key slot(s):", fingerprints.len());
+    println!("Tresor contains {} key slot(s):", fingerprints.len());
     for (i, fp) in fingerprints.iter().enumerate() {
         let fp_b64 = STANDARD_NO_PAD.encode(fp);
 

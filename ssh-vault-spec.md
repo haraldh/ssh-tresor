@@ -6,7 +6,7 @@
 
 This approach allows secrets to be decrypted only when the corresponding SSH key is loaded in an agent, with no passphrase prompts required at decryption time.
 
-**Multi-key support:** A vault can be encrypted for multiple SSH keys (LUKS-style slots). Each slot encrypts a master key, which in turn encrypts the data. Any of the authorized keys can decrypt the vault.
+**Multi-key support:** A tresor can be encrypted for multiple SSH keys (LUKS-style slots). Each slot encrypts a master key, which in turn encrypts the data. Any of the authorized keys can decrypt the tresor.
 
 ## Use Case
 
@@ -14,7 +14,7 @@ Primary use case: storing encrypted credentials (e.g., IMAP passwords) in config
 
 Example integration with meli email client:
 ```toml
-server_password_command = "ssh-tresor decrypt ~/.config/meli/imap.vault"
+server_password_command = "ssh-tresor decrypt ~/.config/meli/imap.tresor"
 ```
 
 Works seamlessly over SSH with agent forwarding (`ssh -A`).
@@ -27,9 +27,9 @@ ssh-tresor [OPTIONS] <COMMAND>
 Commands:
   encrypt     Encrypt data using SSH keys from the agent
   decrypt     Decrypt data using an SSH key from the agent
-  add-key     Add a key to an existing vault
-  remove-key  Remove a key from an existing vault
-  list-slots  List key slots in a vault
+  add-key     Add a key to an existing tresor
+  remove-key  Remove a key from an existing tresor
+  list-slots  List key slots in a tresor
   list-keys   List available keys in the SSH agent
 
 Options:
@@ -52,7 +52,7 @@ Options:
   -h, --help               Print help
 ```
 
-If no `-k` is specified, uses the first available key. Multiple `-k` flags create a multi-key vault.
+If no `-k` is specified, uses the first available key. Multiple `-k` flags create a multi-key tresor.
 
 ### decrypt
 
@@ -75,7 +75,7 @@ Automatically tries all keys in the agent and uses the first matching slot.
 ssh-tresor add-key [OPTIONS] --key <FINGERPRINT> [INPUT]
 
 Arguments:
-  [INPUT]  Input vault file (default: stdin)
+  [INPUT]  Input tresor file (default: stdin)
 
 Options:
   -k, --key <FINGERPRINT>  SSH key fingerprint to add
@@ -92,7 +92,7 @@ Requires access to an existing authorized key to decrypt the master key.
 ssh-tresor remove-key [OPTIONS] --key <FINGERPRINT> [INPUT]
 
 Arguments:
-  [INPUT]  Input vault file (default: stdin)
+  [INPUT]  Input tresor file (default: stdin)
 
 Options:
   -k, --key <FINGERPRINT>  SSH key fingerprint to remove
@@ -101,7 +101,7 @@ Options:
   -h, --help               Print help
 ```
 
-Cannot remove the last key from a vault.
+Cannot remove the last key from a tresor.
 
 ### list-slots
 
@@ -109,7 +109,7 @@ Cannot remove the last key from a vault.
 ssh-tresor list-slots [INPUT]
 
 Arguments:
-  [INPUT]  Input vault file (default: stdin)
+  [INPUT]  Input tresor file (default: stdin)
 
 Options:
   -h, --help  Print help
@@ -181,7 +181,7 @@ When requesting a signature from the agent:
 
 ```
 +---------------------+
-| Magic (8 bytes)     |  "SSHVAULT" (0x53 0x53 0x48 0x56 0x41 0x55 0x4C 0x54)
+| Magic (8 bytes)     |  "SSHTRESR" (0x53 0x53 0x48 0x54 0x52 0x45 0x53 0x52)
 +---------------------+
 | Version (1 byte)    |  0x02
 +---------------------+
@@ -220,8 +220,8 @@ When requesting a signature from the agent:
 - Per slot: 124 bytes
 - Data overhead: 12 bytes (nonce) + 16 bytes (auth tag)
 
-Single-key vault: 10 + 124 + 12 + 16 = 162 bytes + ciphertext
-Three-key vault: 10 + 372 + 12 + 16 = 410 bytes + ciphertext
+Single-key tresor: 10 + 124 + 12 + 16 = 162 bytes + ciphertext
+Three-key tresor: 10 + 372 + 12 + 16 = 410 bytes + ciphertext
 
 ### Armored Format
 
@@ -266,7 +266,7 @@ Error: SSH agent not available
 Hint: Is SSH_AUTH_SOCK set? Try running: eval $(ssh-agent) && ssh-add
 
 Error: No matching slot found
-Hint: None of the keys in your SSH agent can decrypt this vault
+Hint: None of the keys in your SSH agent can decrypt this tresor
 ```
 
 ## Testing Strategy
@@ -281,8 +281,8 @@ Hint: None of the keys in your SSH agent can decrypt this vault
 ### Integration Tests
 - Full encrypt/decrypt cycle with real agent
 - Multi-key encrypt, decrypt with each key individually
-- Add key to existing vault
-- Remove key from vault
+- Add key to existing tresor
+- Remove key from tresor
 - Key selection by fingerprint
 - Stdin/stdout operation
 - File input/output operation
@@ -319,26 +319,26 @@ U1NIVkFVTFQCnxqK8mF3vR...
 -----END SSH TRESOR-----
 
 # Encrypt for multiple keys
-$ echo -n "super-secret-password" | ssh-tresor encrypt -k SHA256:uNiV -k SHA256:2bGQ -o secret.vault
+$ echo -n "super-secret-password" | ssh-tresor encrypt -k SHA256:uNiV -k SHA256:2bGQ -o secret.tresor
 
-# List slots in a vault
-$ ssh-tresor list-slots secret.vault
+# List slots in a tresor
+$ ssh-tresor list-slots secret.tresor
 Vault contains 2 key slot(s):
   Slot 1: SHA256:uNiVztksCsDhcc0u9e8BujQXVUpKZIDTMczCvj3tD2s ED25519 harald@workstation [AVAILABLE]
   Slot 2: SHA256:2bGQ+FN/wdGvPwRCJdBe8bMPgIQCk0j8Fq1XVfLbLHs RSA-4096 harald@backup [AVAILABLE]
 
 # Decrypt (auto-detects matching key)
-$ ssh-tresor decrypt secret.vault
+$ ssh-tresor decrypt secret.tresor
 super-secret-password
 
-# Add another key to existing vault
-$ ssh-tresor add-key -k SHA256:newkey < secret.vault > updated.vault
+# Add another key to existing tresor
+$ ssh-tresor add-key -k SHA256:newkey < secret.tresor > updated.tresor
 
-# Remove a key from vault
-$ ssh-tresor remove-key -k SHA256:2bGQ < secret.vault > reduced.vault
+# Remove a key from tresor
+$ ssh-tresor remove-key -k SHA256:2bGQ < secret.tresor > reduced.tresor
 
 # Use in a password command
-$ ssh-tresor decrypt ~/.secrets/mail.vault | xargs -0 some-command
+$ ssh-tresor decrypt ~/.secrets/mail.tresor | xargs -0 some-command
 ```
 
 ## Project Structure
@@ -352,7 +352,7 @@ ssh-tresor/
 │   ├── lib.rs            # Public API (encrypt, decrypt, add_key, remove_key, list_slots, list_keys)
 │   ├── agent.rs          # SSH agent connection and protocol
 │   ├── crypto.rs         # Key derivation, master key, and AES-GCM operations
-│   ├── format.rs         # Wire format: VaultBlob, Slot serialization
+│   ├── format.rs         # Wire format: TresorBlob, Slot serialization
 │   └── error.rs          # Error types with exit codes
 ├── tests/
 │   ├── integration.sh    # Shell-based integration tests

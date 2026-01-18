@@ -1,8 +1,8 @@
 use crate::error::{Error, Result};
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 
-/// Magic header bytes: "SSHVAULT"
-pub const MAGIC: &[u8; 8] = b"SSHVAULT";
+/// Magic header bytes: "SSHTRESR"
+pub const MAGIC: &[u8; 8] = b"SSHTRESR";
 
 /// Current format version
 pub const VERSION: u8 = 0x02;
@@ -85,9 +85,9 @@ impl Slot {
     }
 }
 
-/// Represents the parsed components of an encrypted vault with multi-key support
+/// Represents the parsed components of an encrypted tresor with multi-key support
 #[derive(Debug, Clone)]
-pub struct VaultBlob {
+pub struct TresorBlob {
     /// Key slots (1-255)
     pub slots: Vec<Slot>,
     /// AES-GCM nonce for the data
@@ -96,7 +96,7 @@ pub struct VaultBlob {
     pub ciphertext: Vec<u8>,
 }
 
-impl VaultBlob {
+impl TresorBlob {
     /// Serialize the vault blob to binary format
     pub fn to_bytes(&self) -> Vec<u8> {
         let slot_count = self.slots.len() as u8;
@@ -172,7 +172,7 @@ impl VaultBlob {
 
         let slot_count = data[9] as usize;
         if slot_count == 0 {
-            return Err(Error::InvalidFormat("vault has no key slots".to_string()));
+            return Err(Error::InvalidFormat("tresor has no key slots".to_string()));
         }
 
         let slots_end = HEADER_SIZE + (slot_count * SLOT_SIZE);
@@ -198,7 +198,7 @@ impl VaultBlob {
         // Rest is ciphertext
         let ciphertext = data[slots_end + NONCE_SIZE..].to_vec();
 
-        Ok(VaultBlob {
+        Ok(TresorBlob {
             slots,
             data_nonce,
             ciphertext,
@@ -272,14 +272,14 @@ mod tests {
     #[test]
     fn test_roundtrip_binary_single_slot() {
         // Ciphertext must include auth tag (16 bytes minimum)
-        let blob = VaultBlob {
+        let blob = TresorBlob {
             slots: vec![make_test_slot(0x42)],
             data_nonce: [0x37; NONCE_SIZE],
             ciphertext: vec![0xde; AUTH_TAG_SIZE + 4], // 20 bytes: 4 data + 16 auth tag
         };
 
         let bytes = blob.to_bytes();
-        let parsed = VaultBlob::from_bytes(&bytes).unwrap();
+        let parsed = TresorBlob::from_bytes(&bytes).unwrap();
 
         assert_eq!(parsed.slots.len(), 1);
         assert_eq!(parsed.slots[0].fingerprint, blob.slots[0].fingerprint);
@@ -289,7 +289,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_binary_multiple_slots() {
-        let blob = VaultBlob {
+        let blob = TresorBlob {
             slots: vec![
                 make_test_slot(0x01),
                 make_test_slot(0x02),
@@ -300,7 +300,7 @@ mod tests {
         };
 
         let bytes = blob.to_bytes();
-        let parsed = VaultBlob::from_bytes(&bytes).unwrap();
+        let parsed = TresorBlob::from_bytes(&bytes).unwrap();
 
         assert_eq!(parsed.slots.len(), 3);
         for i in 0..3 {
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn test_roundtrip_armored() {
-        let blob = VaultBlob {
+        let blob = TresorBlob {
             slots: vec![make_test_slot(0x42), make_test_slot(0x43)],
             data_nonce: [0x37; NONCE_SIZE],
             ciphertext: vec![0xde; AUTH_TAG_SIZE + 4],
@@ -320,7 +320,7 @@ mod tests {
         assert!(armored.starts_with(ARMOR_BEGIN));
         assert!(armored.trim().ends_with(ARMOR_END));
 
-        let parsed = VaultBlob::from_bytes(armored.as_bytes()).unwrap();
+        let parsed = TresorBlob::from_bytes(armored.as_bytes()).unwrap();
 
         assert_eq!(parsed.slots.len(), 2);
         assert_eq!(parsed.data_nonce, blob.data_nonce);
@@ -329,7 +329,7 @@ mod tests {
 
     #[test]
     fn test_find_slot() {
-        let blob = VaultBlob {
+        let blob = TresorBlob {
             slots: vec![make_test_slot(0x01), make_test_slot(0x02)],
             data_nonce: [0x37; NONCE_SIZE],
             ciphertext: vec![0xde; AUTH_TAG_SIZE],
@@ -349,14 +349,14 @@ mod tests {
         let mut data = vec![0u8; HEADER_SIZE + SLOT_SIZE + NONCE_SIZE + AUTH_TAG_SIZE];
         data[0..8].copy_from_slice(b"NOTVALID");
 
-        let result = VaultBlob::from_bytes(&data);
+        let result = TresorBlob::from_bytes(&data);
         assert!(matches!(result, Err(Error::InvalidFormat(_))));
     }
 
     #[test]
     fn test_data_too_short() {
         let data = vec![0u8; 50];
-        let result = VaultBlob::from_bytes(&data);
+        let result = TresorBlob::from_bytes(&data);
         assert!(matches!(result, Err(Error::InvalidFormat(_))));
     }
 
@@ -367,7 +367,7 @@ mod tests {
         data[8] = VERSION;
         data[9] = 0; // zero slots
 
-        let result = VaultBlob::from_bytes(&data);
+        let result = TresorBlob::from_bytes(&data);
         assert!(matches!(result, Err(Error::InvalidFormat(_))));
     }
 }

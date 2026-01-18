@@ -20,21 +20,23 @@ pub enum Error {
     #[error("SSH agent error: {0}")]
     AgentError(#[from] ssh_agent_client_rs::Error),
 
-    #[error("Key not found: {fingerprint}\nHint: Use 'ssh-vault list-keys' to see available keys")]
+    #[error(
+        "Key not found: {fingerprint}\nHint: Use 'ssh-tresor list-keys' to see available keys"
+    )]
     KeyNotFound { fingerprint: String },
 
     #[error("No keys available in SSH agent\nHint: Try running: ssh-add")]
     NoKeysAvailable,
 
     #[error(
-        "No matching slot found\nHint: None of the keys in your SSH agent can decrypt this vault"
+        "No matching slot found\nHint: None of the keys in your SSH agent can decrypt this tresor"
     )]
     NoMatchingSlot,
 
     #[error("Decryption failed: {0}")]
     DecryptionFailed(String),
 
-    #[error("Invalid vault format: {0}")]
+    #[error("Invalid tresor format: {0}")]
     InvalidFormat(String),
 
     #[error("I/O error: {0}")]

@@ -1,7 +1,7 @@
 //! ssh-tresor: SSH Agent-Based Secret Encryption
 //!
 //! This library provides functionality to encrypt and decrypt secrets using
-//! keys held in an SSH agent. It supports multiple keys per vault (LUKS-style slots),
+//! keys held in an SSH agent. It supports multiple keys per tresor (LUKS-style slots),
 //! where each slot encrypts a master key that in turn encrypts the data.
 
 pub mod agent;
@@ -11,7 +11,7 @@ pub mod format;
 
 pub use agent::{AgentConnection, AgentKey};
 pub use error::{Error, Result};
-pub use format::{Slot, VaultBlob};
+pub use format::{Slot, TresorBlob};
 
 /// Encrypt data using SSH keys from the agent
 ///
@@ -20,8 +20,8 @@ pub use format::{Slot, VaultBlob};
 /// * `fingerprints` - Fingerprint prefixes to select keys. If empty, uses the first available key.
 ///
 /// # Returns
-/// A `VaultBlob` containing the encrypted data and slots for each key.
-pub fn encrypt(plaintext: &[u8], fingerprints: &[&str]) -> Result<VaultBlob> {
+/// A `TresorBlob` containing the encrypted data and slots for each key.
+pub fn encrypt(plaintext: &[u8], fingerprints: &[&str]) -> Result<TresorBlob> {
     let mut agent = AgentConnection::connect()?;
 
     // Collect keys to use
@@ -42,7 +42,7 @@ fn encrypt_with_keys(
     agent: &mut AgentConnection,
     keys: &[AgentKey],
     plaintext: &[u8],
-) -> Result<VaultBlob> {
+) -> Result<TresorBlob> {
     // Generate master key
     let master_key = crypto::generate_master_key();
 
@@ -57,7 +57,7 @@ fn encrypt_with_keys(
     let data_nonce = crypto::generate_nonce();
     let ciphertext = crypto::encrypt(&master_key, &data_nonce, plaintext)?;
 
-    Ok(VaultBlob {
+    Ok(TresorBlob {
         slots,
         data_nonce,
         ciphertext,
@@ -92,16 +92,16 @@ fn create_slot(agent: &mut AgentConnection, key: &AgentKey, master_key: &[u8; 32
     })
 }
 
-/// Decrypt a vault blob using the SSH agent
+/// Decrypt a tresor blob using the SSH agent
 ///
 /// Tries all available keys in the agent and returns success if any slot matches.
 ///
 /// # Arguments
-/// * `blob` - The encrypted vault blob
+/// * `blob` - The encrypted tresor blob
 ///
 /// # Returns
 /// The decrypted plaintext data.
-pub fn decrypt(blob: &VaultBlob) -> Result<Vec<u8>> {
+pub fn decrypt(blob: &TresorBlob) -> Result<Vec<u8>> {
     let mut agent = AgentConnection::connect()?;
     let keys = agent.list_keys()?;
 
@@ -123,7 +123,7 @@ fn decrypt_with_slot(
     agent: &mut AgentConnection,
     key: &AgentKey,
     slot: &Slot,
-    blob: &VaultBlob,
+    blob: &TresorBlob,
 ) -> Result<Vec<u8>> {
     // Request agent to sign the stored challenge
     let signature = agent.sign(key, &slot.challenge)?;
@@ -138,15 +138,15 @@ fn decrypt_with_slot(
     crypto::decrypt(&master_key, &blob.data_nonce, &blob.ciphertext)
 }
 
-/// Add a key to an existing vault
+/// Add a key to an existing tresor
 ///
 /// # Arguments
-/// * `blob` - The existing vault blob
+/// * `blob` - The existing tresor blob
 /// * `new_fingerprint` - Fingerprint prefix of the key to add
 ///
 /// # Returns
-/// A new `VaultBlob` with the additional slot.
-pub fn add_key(blob: &VaultBlob, new_fingerprint: &str) -> Result<VaultBlob> {
+/// A new `TresorBlob` with the additional slot.
+pub fn add_key(blob: &TresorBlob, new_fingerprint: &str) -> Result<TresorBlob> {
     let mut agent = AgentConnection::connect()?;
 
     // First, decrypt the master key using an existing slot
@@ -158,7 +158,7 @@ pub fn add_key(blob: &VaultBlob, new_fingerprint: &str) -> Result<VaultBlob> {
     // Check if key already exists
     if blob.find_slot(&new_key.fingerprint_bytes).is_some() {
         return Err(Error::InvalidFormat(
-            "key already exists in vault".to_string(),
+            "key already exists in tresor".to_string(),
         ));
     }
 
@@ -169,22 +169,22 @@ pub fn add_key(blob: &VaultBlob, new_fingerprint: &str) -> Result<VaultBlob> {
     let mut new_slots = blob.slots.clone();
     new_slots.push(new_slot);
 
-    Ok(VaultBlob {
+    Ok(TresorBlob {
         slots: new_slots,
         data_nonce: blob.data_nonce,
         ciphertext: blob.ciphertext.clone(),
     })
 }
 
-/// Remove a key from an existing vault
+/// Remove a key from an existing tresor
 ///
 /// # Arguments
-/// * `blob` - The existing vault blob
+/// * `blob` - The existing tresor blob
 /// * `fingerprint` - Fingerprint prefix of the key to remove
 ///
 /// # Returns
-/// A new `VaultBlob` without the specified slot.
-pub fn remove_key(blob: &VaultBlob, fingerprint: &str) -> Result<VaultBlob> {
+/// A new `TresorBlob` without the specified slot.
+pub fn remove_key(blob: &TresorBlob, fingerprint: &str) -> Result<TresorBlob> {
     let mut agent = AgentConnection::connect()?;
 
     // First verify we can still decrypt (have access to another key)
@@ -213,7 +213,7 @@ pub fn remove_key(blob: &VaultBlob, fingerprint: &str) -> Result<VaultBlob> {
     // Cannot remove the last slot
     if blob.slots.len() == 1 {
         return Err(Error::InvalidFormat(
-            "cannot remove the last key from vault".to_string(),
+            "cannot remove the last key from tresor".to_string(),
         ));
     }
 
@@ -231,20 +231,20 @@ pub fn remove_key(blob: &VaultBlob, fingerprint: &str) -> Result<VaultBlob> {
         });
     }
 
-    Ok(VaultBlob {
+    Ok(TresorBlob {
         slots: new_slots,
         data_nonce: blob.data_nonce,
         ciphertext: blob.ciphertext.clone(),
     })
 }
 
-/// List slot fingerprints from a vault
-pub fn list_slots(blob: &VaultBlob) -> Vec<[u8; 32]> {
+/// List slot fingerprints from a tresor
+pub fn list_slots(blob: &TresorBlob) -> Vec<[u8; 32]> {
     blob.slot_fingerprints()
 }
 
 /// Recover master key from any accessible slot
-fn recover_master_key(agent: &mut AgentConnection, blob: &VaultBlob) -> Result<[u8; 32]> {
+fn recover_master_key(agent: &mut AgentConnection, blob: &TresorBlob) -> Result<[u8; 32]> {
     let keys = agent.list_keys()?;
 
     for key in &keys {

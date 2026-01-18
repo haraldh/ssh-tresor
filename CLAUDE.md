@@ -18,7 +18,7 @@ cargo clippy                   # Lint
 
 ssh-tresor encrypts secrets using SSH agent keys. It derives AES-256 keys by having the agent sign a challenge, then uses the signature as key material.
 
-**Multi-key support (LUKS-style slots):** A vault can have multiple key slots. Each slot encrypts the same master key using a different SSH key. The master key encrypts the actual data.
+**Multi-key support (LUKS-style slots):** A tresor can have multiple key slots. Each slot encrypts the same master key using a different SSH key. The master key encrypts the actual data.
 
 ### Wire Format (v2)
 
@@ -34,7 +34,7 @@ Data:       nonce (12) + ciphertext (variable, includes 16-byte auth tag)
 - **lib.rs** - Public API: `encrypt()`, `decrypt()`, `add_key()`, `remove_key()`, `list_slots()`, `list_keys()`
 - **agent.rs** - SSH agent connection via `SSH_AUTH_SOCK`, key listing, signing
 - **crypto.rs** - AES-256-GCM encryption, master key generation, key derivation from signatures
-- **format.rs** - `VaultBlob` and `Slot` serialization/deserialization, armored format
+- **format.rs** - `TresorBlob` and `Slot` serialization/deserialization, armored format
 - **error.rs** - Error types with exit codes (0=success, 2=agent, 3=key not found, 4=decrypt fail)
 
 ### Key Flow

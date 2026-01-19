@@ -64,10 +64,23 @@ This project uses [Conventional Commits](https://www.conventionalcommits.org/). 
 - `chore:` - Maintenance tasks (deps, CI, etc.)
 - `perf:` - Performance improvement
 
+**Breaking Changes:**
+Breaking changes **must** be annotated using one of these methods:
+- Add `!` after the type: `feat!: remove deprecated API`
+- Add a `BREAKING CHANGE:` footer in the commit body
+
+This triggers a major version bump in release-please.
+
 **Examples:**
 ```
 feat: add support for ECDSA keys
 fix: handle empty input gracefully
 docs: add README for crates.io
 chore: update dependencies
+
+feat!: change default encryption algorithm
+
+feat: new wire format
+
+BREAKING CHANGE: v2 format is not compatible with v1
 ```

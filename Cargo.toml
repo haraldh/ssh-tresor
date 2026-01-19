@@ -5,6 +5,7 @@ edition = "2021"
 description = "Encrypt and decrypt secrets using SSH agent keys"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/haraldh/ssh-tresor"
+readme = "README.md"
 keywords = ["ssh", "encryption", "secrets", "agent"]
 categories = ["cryptography", "command-line-utilities"]
 

@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   pull_request:
-    branches: [main]
+    branches: [ main ]
 
 env:
   CARGO_TERM_COLOR: always
@@ -41,23 +41,11 @@ jobs:
       - name: Run unit tests
         run: cargo test --lib
 
-  integration:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - name: Build release binary
-        run: cargo build --release
-      - name: Run integration tests
-        run: bash tests/integration.sh
-
   build:
     name: Build
     strategy:
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ ubuntu-latest, macos-latest ]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -65,8 +53,5 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Build
         run: cargo build --release
-      - name: Upload binary
-        uses: actions/upload-artifact@v4
-        with:
-          name: ssh-tresor-${{ matrix.os }}
-          path: target/release/ssh-tresor
+      - name: Run integration tests
+        run: bash tests/integration.sh

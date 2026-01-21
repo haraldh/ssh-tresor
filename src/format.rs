@@ -21,6 +21,9 @@ pub const SLOT_SIZE: usize = FINGERPRINT_SIZE + CHALLENGE_SIZE + NONCE_SIZE + EN
 /// Header size: magic (8) + version (1) + slot_count (1) = 10
 pub const HEADER_SIZE: usize = 10;
 
+/// Maximum tresor file size (100 MB) to prevent DoS via memory exhaustion
+pub const MAX_TRESOR_SIZE: usize = 100 * 1024 * 1024;
+
 const ARMOR_BEGIN: &str = "-----BEGIN SSH TRESOR-----";
 const ARMOR_END: &str = "-----END SSH TRESOR-----";
 

@@ -9,6 +9,8 @@ pub mod crypto;
 pub mod error;
 pub mod format;
 
+use zeroize::Zeroizing;
+
 pub use agent::{AgentConnection, AgentKey};
 pub use error::{Error, Result};
 pub use format::{Slot, TresorBlob};
@@ -43,7 +45,7 @@ fn encrypt_with_keys(
     keys: &[AgentKey],
     plaintext: &[u8],
 ) -> Result<TresorBlob> {
-    // Generate master key
+    // Generate master key (zeroized on drop)
     let master_key = crypto::generate_master_key();
 
     // Create a slot for each key
@@ -72,7 +74,7 @@ fn create_slot(agent: &mut AgentConnection, key: &AgentKey, master_key: &[u8; 32
     // Request agent to sign the challenge
     let signature = agent.sign(key, &challenge)?;
 
-    // Derive AES key from signature
+    // Derive AES key from signature (zeroized on drop)
     let slot_key = agent::derive_key_from_signature(&signature);
 
     // Generate nonce for this slot
@@ -128,10 +130,10 @@ fn decrypt_with_slot(
     // Request agent to sign the stored challenge
     let signature = agent.sign(key, &slot.challenge)?;
 
-    // Derive slot key from signature
+    // Derive slot key from signature (zeroized on drop)
     let slot_key = agent::derive_key_from_signature(&signature);
 
-    // Decrypt the master key
+    // Decrypt the master key (zeroized on drop)
     let master_key = crypto::decrypt_master_key(&slot_key, &slot.nonce, &slot.encrypted_key)?;
 
     // Decrypt the data with the master key
@@ -243,8 +245,11 @@ pub fn list_slots(blob: &TresorBlob) -> Vec<[u8; 32]> {
     blob.slot_fingerprints()
 }
 
-/// Recover master key from any accessible slot
-fn recover_master_key(agent: &mut AgentConnection, blob: &TresorBlob) -> Result<[u8; 32]> {
+/// Recover master key from any accessible slot (zeroized on drop)
+fn recover_master_key(
+    agent: &mut AgentConnection,
+    blob: &TresorBlob,
+) -> Result<Zeroizing<[u8; 32]>> {
     let keys = agent.list_keys()?;
 
     for key in &keys {
@@ -252,7 +257,7 @@ fn recover_master_key(agent: &mut AgentConnection, blob: &TresorBlob) -> Result<
             // Request agent to sign the stored challenge
             let signature = agent.sign(key, &slot.challenge)?;
 
-            // Derive slot key from signature
+            // Derive slot key from signature (zeroized on drop)
             let slot_key = agent::derive_key_from_signature(&signature);
 
             // Try to decrypt the master key

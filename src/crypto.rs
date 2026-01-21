@@ -4,6 +4,7 @@ use aes_gcm::{
 };
 use rand::rngs::OsRng;
 use rand::RngCore;
+use zeroize::Zeroizing;
 
 use crate::error::{Error, Result};
 use crate::format::{CHALLENGE_SIZE, MASTER_KEY_SIZE, NONCE_SIZE};
@@ -22,10 +23,10 @@ pub fn generate_nonce() -> [u8; NONCE_SIZE] {
     nonce
 }
 
-/// Generate a random master key
-pub fn generate_master_key() -> [u8; MASTER_KEY_SIZE] {
-    let mut key = [0u8; MASTER_KEY_SIZE];
-    OsRng.fill_bytes(&mut key);
+/// Generate a random master key (wrapped in Zeroizing for automatic memory cleanup)
+pub fn generate_master_key() -> Zeroizing<[u8; MASTER_KEY_SIZE]> {
+    let mut key = Zeroizing::new([0u8; MASTER_KEY_SIZE]);
+    OsRng.fill_bytes(&mut *key);
     key
 }
 
@@ -58,12 +59,12 @@ pub fn encrypt_master_key(
     encrypt(slot_key, nonce, master_key)
 }
 
-/// Decrypt a master key from a slot
+/// Decrypt a master key from a slot (wrapped in Zeroizing for automatic memory cleanup)
 pub fn decrypt_master_key(
     slot_key: &[u8; 32],
     nonce: &[u8; NONCE_SIZE],
     encrypted_key: &[u8],
-) -> Result<[u8; MASTER_KEY_SIZE]> {
+) -> Result<Zeroizing<[u8; MASTER_KEY_SIZE]>> {
     let decrypted = decrypt(slot_key, nonce, encrypted_key)?;
 
     if decrypted.len() != MASTER_KEY_SIZE {
@@ -74,7 +75,7 @@ pub fn decrypt_master_key(
         )));
     }
 
-    let mut key = [0u8; MASTER_KEY_SIZE];
+    let mut key = Zeroizing::new([0u8; MASTER_KEY_SIZE]);
     key.copy_from_slice(&decrypted);
     Ok(key)
 }

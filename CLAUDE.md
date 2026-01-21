@@ -20,7 +20,7 @@ ssh-tresor encrypts secrets using SSH agent keys. It derives AES-256 keys by hav
 
 **Multi-key support (LUKS-style slots):** A tresor can have multiple key slots. Each slot encrypts the same master key using a different SSH key. The master key encrypts the actual data.
 
-### Wire Format (v2)
+### Wire Format (v3)
 
 ```
 Header:     magic (8) + version (1) + slot_count (1)

@@ -59,7 +59,7 @@ Store encrypted credentials in config files, decrypted automatically when your S
 server_password_command = "ssh-tresor decrypt ~/.config/meli/imap.tresor"
 ```
 
-## Wire Format
+## Wire Format (v3)
 
 ```
 Header:     SSHTRESR (8) + version (1) + slot_count (1)
@@ -67,7 +67,7 @@ Slots[]:    fingerprint (32) + challenge (32) + nonce (12) + encrypted_key (48)
 Data:       nonce (12) + ciphertext (variable, includes 16-byte auth tag)
 ```
 
-Each slot encrypts the same master key using a different SSH key. The master key encrypts the actual data.
+Each slot encrypts the same master key using a different SSH key. The master key encrypts the actual data. Key derivation uses HKDF-SHA256 for improved security.
 
 ## License
 

@@ -178,6 +178,56 @@ pub fn add_key(blob: &TresorBlob, new_fingerprint: &str) -> Result<TresorBlob> {
     })
 }
 
+/// Add all available keys from the agent to an existing tresor
+///
+/// Skips keys that already exist in the tresor or that cause errors when signing.
+///
+/// # Arguments
+/// * `blob` - The existing tresor blob
+///
+/// # Returns
+/// A tuple of the new `TresorBlob` and the count of keys added.
+pub fn add_all_keys(blob: &TresorBlob) -> Result<(TresorBlob, usize)> {
+    let mut agent = AgentConnection::connect()?;
+
+    // First, decrypt the master key using an existing slot
+    let master_key = recover_master_key(&mut agent, blob)?;
+
+    // Get all available keys
+    let keys = agent.list_keys()?;
+
+    let mut new_slots = blob.slots.clone();
+    let mut added = 0;
+
+    for key in &keys {
+        // Skip if key already exists
+        if blob.find_slot(&key.fingerprint_bytes).is_some() {
+            continue;
+        }
+
+        // Try to create a slot for this key
+        match create_slot(&mut agent, key, &master_key) {
+            Ok(slot) => {
+                new_slots.push(slot);
+                added += 1;
+            }
+            Err(_) => {
+                // Skip keys that fail (e.g., signing error)
+                continue;
+            }
+        }
+    }
+
+    Ok((
+        TresorBlob {
+            slots: new_slots,
+            data_nonce: blob.data_nonce,
+            ciphertext: blob.ciphertext.clone(),
+        },
+        added,
+    ))
+}
+
 /// Remove a key from an existing tresor
 ///
 /// # Arguments

@@ -61,8 +61,17 @@ enum Commands {
         #[arg(short = 'a', long = "all", conflicts_with = "fingerprint")]
         all: bool,
 
+        /// Modify tresor file in-place
+        #[arg(
+            short = 'i',
+            long = "in-place",
+            conflicts_with = "output",
+            requires = "input"
+        )]
+        in_place: bool,
+
         /// Output file (default: stdout)
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "in_place")]
         output: Option<PathBuf>,
 
         /// Output as base64 with header/footer (default: preserve input format)
@@ -79,12 +88,21 @@ enum Commands {
         #[arg(short = 'k', long = "key", required = true)]
         fingerprint: String,
 
+        /// Modify tresor file in-place
+        #[arg(
+            short = 'i',
+            long = "in-place",
+            conflicts_with = "output",
+            requires = "input"
+        )]
+        in_place: bool,
+
         /// Output file (default: stdout)
-        #[arg(short, long)]
+        #[arg(short, long, conflicts_with = "in_place")]
         output: Option<PathBuf>,
 
         /// Output as base64 with header/footer (default: preserve input format)
-        #[arg(short, long)]
+        #[arg(long)]
         armor: bool,
     },
 
@@ -117,15 +135,17 @@ fn main() -> ExitCode {
             input,
             fingerprint,
             all,
+            in_place,
             output,
             armor,
-        } => cmd_add_key(input, fingerprint.as_deref(), all, output, armor),
+        } => cmd_add_key(input, fingerprint.as_deref(), all, in_place, output, armor),
         Commands::RemoveKey {
             input,
             fingerprint,
+            in_place,
             output,
             armor,
-        } => cmd_remove_key(input, &fingerprint, output, armor),
+        } => cmd_remove_key(input, &fingerprint, in_place, output, armor),
         Commands::ListSlots { input } => cmd_list_slots(input),
         Commands::ListKeys { md5 } => cmd_list_keys(md5),
     };
@@ -187,6 +207,7 @@ fn cmd_add_key(
     input: Option<PathBuf>,
     fingerprint: Option<&str>,
     all: bool,
+    in_place: bool,
     output: Option<PathBuf>,
     armor: bool,
 ) -> ssh_tresor::Result<()> {
@@ -198,7 +219,7 @@ fn cmd_add_key(
     }
 
     // Read input
-    let encrypted = read_input(input)?;
+    let encrypted = read_input(input.clone())?;
 
     // Detect if input was armored
     let was_armored = std::str::from_utf8(&encrypted)
@@ -228,8 +249,9 @@ fn cmd_add_key(
         new_blob.to_bytes()?
     };
 
-    // Write output
-    write_output(output, &output_data)?;
+    // Write output (in-place uses input path)
+    let output_path = if in_place { input } else { output };
+    write_output(output_path, &output_data)?;
 
     Ok(())
 }
@@ -237,11 +259,12 @@ fn cmd_add_key(
 fn cmd_remove_key(
     input: Option<PathBuf>,
     fingerprint: &str,
+    in_place: bool,
     output: Option<PathBuf>,
     armor: bool,
 ) -> ssh_tresor::Result<()> {
     // Read input
-    let encrypted = read_input(input)?;
+    let encrypted = read_input(input.clone())?;
 
     // Detect if input was armored
     let was_armored = std::str::from_utf8(&encrypted)
@@ -261,8 +284,9 @@ fn cmd_remove_key(
         new_blob.to_bytes()?
     };
 
-    // Write output
-    write_output(output, &output_data)?;
+    // Write output (in-place uses input path)
+    let output_path = if in_place { input } else { output };
+    write_output(output_path, &output_data)?;
 
     Ok(())
 }

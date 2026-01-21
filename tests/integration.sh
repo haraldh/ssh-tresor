@@ -328,6 +328,57 @@ test_add_all_keys_decrypt() {
     [[ "$result" == "ok" ]]
 }
 
+# Test: add-key --in-place modifies file
+test_add_key_in_place() {
+    # Create a single-key tresor
+    "$BINARY" encrypt -k "$KEY1_FP" < "$TEST_DIR/plaintext.txt" > "$TEST_DIR/tresor_inplace.bin"
+
+    # Verify it has 1 slot
+    local output
+    output=$("$BINARY" list-slots "$TEST_DIR/tresor_inplace.bin")
+    [[ "$output" == *"1 key slot"* ]] || return 1
+
+    # Add key2 in-place
+    "$BINARY" add-key -i -k "$KEY2_FP" "$TEST_DIR/tresor_inplace.bin"
+
+    # Verify it now has 2 slots
+    output=$("$BINARY" list-slots "$TEST_DIR/tresor_inplace.bin")
+    [[ "$output" == *"2 key slot"* ]]
+}
+
+# Test: remove-key --in-place modifies file
+test_remove_key_in_place() {
+    # Start with the 2-key tresor from previous test
+    # Add key3 first so we have 3 keys
+    "$BINARY" add-key -i -k "$KEY3_FP" "$TEST_DIR/tresor_inplace.bin"
+
+    # Verify it has 3 slots
+    local output
+    output=$("$BINARY" list-slots "$TEST_DIR/tresor_inplace.bin")
+    [[ "$output" == *"3 key slot"* ]] || return 1
+
+    # Remove key3 in-place
+    "$BINARY" remove-key -i -k "$KEY3_FP" "$TEST_DIR/tresor_inplace.bin"
+
+    # Verify it now has 2 slots
+    output=$("$BINARY" list-slots "$TEST_DIR/tresor_inplace.bin")
+    [[ "$output" == *"2 key slot"* ]]
+}
+
+# Test: add-key --all --in-place
+test_add_all_keys_in_place() {
+    # Create a single-key tresor
+    "$BINARY" encrypt -k "$KEY1_FP" < "$TEST_DIR/plaintext.txt" > "$TEST_DIR/tresor_all_inplace.bin"
+
+    # Add all keys in-place
+    "$BINARY" add-key -ia "$TEST_DIR/tresor_all_inplace.bin" 2>/dev/null
+
+    # Verify it now has 3 slots
+    local output
+    output=$("$BINARY" list-slots "$TEST_DIR/tresor_all_inplace.bin")
+    [[ "$output" == *"3 key slot"* ]]
+}
+
 # Test: remove-key from tresor
 test_remove_key() {
     # Start with the tresor that has 2 keys
@@ -462,6 +513,9 @@ main() {
     run_test "add-key --all adds all keys" test_add_all_keys
     run_test "add-key --all skips existing keys" test_add_all_keys_skips_existing
     run_test "add-key --all decrypt with any key" test_add_all_keys_decrypt
+    run_test "add-key --in-place modifies file" test_add_key_in_place
+    run_test "remove-key --in-place modifies file" test_remove_key_in_place
+    run_test "add-key --all --in-place" test_add_all_keys_in_place
     run_test "remove-key from tresor" test_remove_key
     run_test "decrypt after remove-key" test_decrypt_after_remove_key
 

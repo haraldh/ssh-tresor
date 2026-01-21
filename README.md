@@ -81,6 +81,11 @@ ssh-tresor add-key -ia secret.tresor  # add all keys in-place
 # Remove a key from tresor
 ssh-tresor remove-key -k SHA256:oldkey < secret.tresor > updated.tresor
 ssh-tresor remove-key -i -k SHA256:oldkey secret.tresor  # in-place
+
+# Generate shell completions
+ssh-tresor completions bash > ~/.local/share/bash-completion/completions/ssh-tresor
+ssh-tresor completions zsh > ~/.zfunc/_ssh-tresor
+ssh-tresor completions fish > ~/.config/fish/completions/ssh-tresor.fish
 ```
 
 ## Use Cases

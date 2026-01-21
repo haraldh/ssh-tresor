@@ -7,6 +7,7 @@ use ssh_key::{HashAlg, PublicKey};
 use std::env;
 use std::fmt;
 use std::path::Path;
+use zeroize::Zeroizing;
 
 /// Represents an SSH key available in the agent
 #[derive(Debug, Clone)]
@@ -190,11 +191,11 @@ impl AgentConnection {
     }
 }
 
-/// Derive an AES-256 key from a signature using HKDF-SHA256
-pub fn derive_key_from_signature(signature: &[u8]) -> [u8; 32] {
+/// Derive an AES-256 key from a signature using HKDF-SHA256 (wrapped in Zeroizing for automatic memory cleanup)
+pub fn derive_key_from_signature(signature: &[u8]) -> Zeroizing<[u8; 32]> {
     let hk = Hkdf::<Sha256>::new(Some(b"ssh-tresor-v3"), signature);
-    let mut okm = [0u8; 32];
-    hk.expand(b"slot-key-derivation", &mut okm)
+    let mut okm = Zeroizing::new([0u8; 32]);
+    hk.expand(b"slot-key-derivation", &mut *okm)
         .expect("32 bytes is valid output length for HKDF-SHA256");
     okm
 }

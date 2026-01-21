@@ -25,6 +25,31 @@ cd ssh-tresor
 cargo build --release
 ```
 
+### Nix
+
+Run directly:
+
+```bash
+nix run github:haraldh/ssh-tresor -- --help
+```
+
+Or add to your flake:
+
+```nix
+{
+  inputs.ssh-tresor.url = "github:haraldh/ssh-tresor";
+
+  outputs = { nixpkgs, ssh-tresor, ... }: {
+    nixosConfigurations.myhost = nixpkgs.lib.nixosSystem {
+      modules = [{
+        nixpkgs.overlays = [ ssh-tresor.overlays.default ];
+        environment.systemPackages = with pkgs; [ ssh-tresor ];
+      }];
+    };
+  };
+}
+```
+
 ## Usage
 
 ```bash

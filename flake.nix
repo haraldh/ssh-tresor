@@ -25,6 +25,15 @@
           # Integration tests require ssh-agent, only run unit tests in nix build
           cargoTestFlags = [ "--lib" ];
 
+          nativeBuildInputs = [ final.installShellFiles ];
+
+          postInstall = ''
+            installShellCompletion --cmd ssh-tresor \
+              --bash <($out/bin/ssh-tresor completions bash) \
+              --zsh <($out/bin/ssh-tresor completions zsh) \
+              --fish <($out/bin/ssh-tresor completions fish)
+          '';
+
           meta = with final.lib; {
             description = "Encrypt and decrypt secrets using SSH agent keys";
             homepage = "https://github.com/haraldh/ssh-tresor";

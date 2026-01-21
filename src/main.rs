@@ -1,5 +1,6 @@
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
 use ssh_tresor::{
     agent, error,
     format::{TresorBlob, MAX_TRESOR_SIZE},
@@ -118,6 +119,13 @@ enum Commands {
         #[arg(long)]
         md5: bool,
     },
+
+    /// Generate shell completions
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum)]
+        shell: Shell,
+    },
 }
 
 fn main() -> ExitCode {
@@ -148,6 +156,10 @@ fn main() -> ExitCode {
         } => cmd_remove_key(input, &fingerprint, in_place, output, armor),
         Commands::ListSlots { input } => cmd_list_slots(input),
         Commands::ListKeys { md5 } => cmd_list_keys(md5),
+        Commands::Completions { shell } => {
+            generate(shell, &mut Cli::command(), "ssh-tresor", &mut io::stdout());
+            Ok(())
+        }
     };
 
     match result {

@@ -71,8 +71,16 @@ ssh-tresor list-slots secret.tresor
 # Add a key to existing tresor
 ssh-tresor add-key -k SHA256:newkey < secret.tresor > updated.tresor
 
+# Add all available keys from agent
+ssh-tresor add-key --all < secret.tresor > updated.tresor
+
+# Modify tresor in-place
+ssh-tresor add-key -i -k SHA256:newkey secret.tresor
+ssh-tresor add-key -ia secret.tresor  # add all keys in-place
+
 # Remove a key from tresor
 ssh-tresor remove-key -k SHA256:oldkey < secret.tresor > updated.tresor
+ssh-tresor remove-key -i -k SHA256:oldkey secret.tresor  # in-place
 ```
 
 ## Use Cases

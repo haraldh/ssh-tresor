@@ -2,6 +2,7 @@ use aes_gcm::{
     aead::{Aead, KeyInit},
     Aes256Gcm, Nonce,
 };
+use rand::rngs::OsRng;
 use rand::RngCore;
 
 use crate::error::{Error, Result};
@@ -10,21 +11,21 @@ use crate::format::{CHALLENGE_SIZE, MASTER_KEY_SIZE, NONCE_SIZE};
 /// Generate a random challenge for the SSH agent to sign
 pub fn generate_challenge() -> [u8; CHALLENGE_SIZE] {
     let mut challenge = [0u8; CHALLENGE_SIZE];
-    rand::thread_rng().fill_bytes(&mut challenge);
+    OsRng.fill_bytes(&mut challenge);
     challenge
 }
 
 /// Generate a random nonce for AES-GCM
 pub fn generate_nonce() -> [u8; NONCE_SIZE] {
     let mut nonce = [0u8; NONCE_SIZE];
-    rand::thread_rng().fill_bytes(&mut nonce);
+    OsRng.fill_bytes(&mut nonce);
     nonce
 }
 
 /// Generate a random master key
 pub fn generate_master_key() -> [u8; MASTER_KEY_SIZE] {
     let mut key = [0u8; MASTER_KEY_SIZE];
-    rand::thread_rng().fill_bytes(&mut key);
+    OsRng.fill_bytes(&mut key);
     key
 }
 
@@ -35,7 +36,7 @@ pub fn encrypt(key: &[u8; 32], nonce: &[u8; NONCE_SIZE], plaintext: &[u8]) -> Re
 
     cipher
         .encrypt(nonce, plaintext)
-        .map_err(|e| Error::DecryptionFailed(format!("encryption failed: {}", e)))
+        .map_err(|e| Error::EncryptionFailed(format!("AES-GCM encryption failed: {}", e)))
 }
 
 /// Decrypt ciphertext using AES-256-GCM

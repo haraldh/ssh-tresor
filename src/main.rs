@@ -148,9 +148,9 @@ fn cmd_encrypt(
 
     // Serialize output
     let output_data = if armor {
-        blob.to_armored().into_bytes()
+        blob.to_armored()?.into_bytes()
     } else {
-        blob.to_bytes()
+        blob.to_bytes()?
     };
 
     // Write output
@@ -197,9 +197,9 @@ fn cmd_add_key(
 
     // Serialize output (preserve format unless --armor specified)
     let output_data = if armor || was_armored {
-        new_blob.to_armored().into_bytes()
+        new_blob.to_armored()?.into_bytes()
     } else {
-        new_blob.to_bytes()
+        new_blob.to_bytes()?
     };
 
     // Write output
@@ -230,9 +230,9 @@ fn cmd_remove_key(
 
     // Serialize output (preserve format unless --armor specified)
     let output_data = if armor || was_armored {
-        new_blob.to_armored().into_bytes()
+        new_blob.to_armored()?.into_bytes()
     } else {
-        new_blob.to_bytes()
+        new_blob.to_bytes()?
     };
 
     // Write output

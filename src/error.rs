@@ -36,6 +36,9 @@ pub enum Error {
     #[error("Decryption failed: {0}")]
     DecryptionFailed(String),
 
+    #[error("Encryption failed: {0}")]
+    EncryptionFailed(String),
+
     #[error("Invalid tresor format: {0}")]
     InvalidFormat(String),
 
@@ -56,7 +59,10 @@ impl Error {
                 EXIT_KEY_NOT_FOUND
             }
             Error::DecryptionFailed(_) => EXIT_DECRYPTION_FAILED,
-            Error::InvalidFormat(_) | Error::Io(_) | Error::Base64(_) => EXIT_GENERAL_ERROR,
+            Error::EncryptionFailed(_)
+            | Error::InvalidFormat(_)
+            | Error::Io(_)
+            | Error::Base64(_) => EXIT_GENERAL_ERROR,
         };
         ExitCode::from(code)
     }

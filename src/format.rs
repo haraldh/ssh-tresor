@@ -5,7 +5,7 @@ use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 pub const MAGIC: &[u8; 8] = b"SSHTRESR";
 
 /// Current format version
-pub const VERSION: u8 = 0x02;
+pub const VERSION: u8 = 0x03;
 
 /// Size constants
 pub const FINGERPRINT_SIZE: usize = 32;
@@ -98,7 +98,16 @@ pub struct TresorBlob {
 
 impl TresorBlob {
     /// Serialize the vault blob to binary format
-    pub fn to_bytes(&self) -> Vec<u8> {
+    pub fn to_bytes(&self) -> Result<Vec<u8>> {
+        if self.slots.is_empty() {
+            return Err(Error::InvalidFormat("tresor has no key slots".to_string()));
+        }
+        if self.slots.len() > 255 {
+            return Err(Error::InvalidFormat(
+                "tresor has too many slots (max 255)".to_string(),
+            ));
+        }
+
         let slot_count = self.slots.len() as u8;
         let total_size =
             HEADER_SIZE + (self.slots.len() * SLOT_SIZE) + NONCE_SIZE + self.ciphertext.len();
@@ -114,12 +123,12 @@ impl TresorBlob {
 
         output.extend_from_slice(&self.data_nonce);
         output.extend_from_slice(&self.ciphertext);
-        output
+        Ok(output)
     }
 
     /// Serialize to armored (base64 with headers) format
-    pub fn to_armored(&self) -> String {
-        let binary = self.to_bytes();
+    pub fn to_armored(&self) -> Result<String> {
+        let binary = self.to_bytes()?;
         let encoded = BASE64.encode(&binary);
 
         // Wrap at 64 characters
@@ -129,7 +138,12 @@ impl TresorBlob {
             .map(|chunk| std::str::from_utf8(chunk).unwrap())
             .collect();
 
-        format!("{}\n{}\n{}\n", ARMOR_BEGIN, wrapped.join("\n"), ARMOR_END)
+        Ok(format!(
+            "{}\n{}\n{}\n",
+            ARMOR_BEGIN,
+            wrapped.join("\n"),
+            ARMOR_END
+        ))
     }
 
     /// Parse from bytes (auto-detects armored vs binary format)
@@ -278,7 +292,7 @@ mod tests {
             ciphertext: vec![0xde; AUTH_TAG_SIZE + 4], // 20 bytes: 4 data + 16 auth tag
         };
 
-        let bytes = blob.to_bytes();
+        let bytes = blob.to_bytes().unwrap();
         let parsed = TresorBlob::from_bytes(&bytes).unwrap();
 
         assert_eq!(parsed.slots.len(), 1);
@@ -299,7 +313,7 @@ mod tests {
             ciphertext: vec![0xde; AUTH_TAG_SIZE + 4],
         };
 
-        let bytes = blob.to_bytes();
+        let bytes = blob.to_bytes().unwrap();
         let parsed = TresorBlob::from_bytes(&bytes).unwrap();
 
         assert_eq!(parsed.slots.len(), 3);
@@ -316,7 +330,7 @@ mod tests {
             ciphertext: vec![0xde; AUTH_TAG_SIZE + 4],
         };
 
-        let armored = blob.to_armored();
+        let armored = blob.to_armored().unwrap();
         assert!(armored.starts_with(ARMOR_BEGIN));
         assert!(armored.trim().ends_with(ARMOR_END));
 

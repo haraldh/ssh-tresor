@@ -1,5 +1,6 @@
 use crate::error::{Error, Result};
-use sha2::{Digest, Sha256};
+use hkdf::Hkdf;
+use sha2::Sha256;
 use ssh_agent_client_rs::{Client, Identity};
 use ssh_key::public::KeyData;
 use ssh_key::{HashAlg, PublicKey};
@@ -28,7 +29,10 @@ impl AgentKey {
         let fingerprint_str = fingerprint.to_string();
 
         // Extract raw SHA-256 bytes from the fingerprint
-        let fingerprint_bytes = fingerprint.as_bytes().try_into().unwrap_or([0u8; 32]);
+        let fingerprint_bytes: [u8; 32] = fingerprint
+            .as_bytes()
+            .try_into()
+            .expect("SHA-256 fingerprint from ssh-key library must be 32 bytes");
 
         let key_type = format_key_type(&public_key);
 
@@ -138,12 +142,24 @@ impl AgentConnection {
     /// Find a key by fingerprint prefix
     pub fn find_key(&mut self, fingerprint: &str) -> Result<AgentKey> {
         let keys = self.list_keys()?;
+        let matches: Vec<_> = keys
+            .into_iter()
+            .filter(|k| k.matches_fingerprint(fingerprint))
+            .collect();
 
-        keys.into_iter()
-            .find(|k| k.matches_fingerprint(fingerprint))
-            .ok_or_else(|| Error::KeyNotFound {
+        match matches.len() {
+            0 => Err(Error::KeyNotFound {
                 fingerprint: fingerprint.to_string(),
-            })
+            }),
+            1 => Ok(matches.into_iter().next().unwrap()),
+            n => {
+                eprintln!(
+                    "Warning: {} keys match prefix '{}', using first match",
+                    n, fingerprint
+                );
+                Ok(matches.into_iter().next().unwrap())
+            }
+        }
     }
 
     /// Find a key by its raw SHA-256 fingerprint bytes
@@ -174,11 +190,13 @@ impl AgentConnection {
     }
 }
 
-/// Derive an AES-256 key from a signature using SHA-256
+/// Derive an AES-256 key from a signature using HKDF-SHA256
 pub fn derive_key_from_signature(signature: &[u8]) -> [u8; 32] {
-    let mut hasher = Sha256::new();
-    hasher.update(signature);
-    hasher.finalize().into()
+    let hk = Hkdf::<Sha256>::new(Some(b"ssh-tresor-v3"), signature);
+    let mut okm = [0u8; 32];
+    hk.expand(b"slot-key-derivation", &mut okm)
+        .expect("32 bytes is valid output length for HKDF-SHA256");
+    okm
 }
 
 fn base64_fingerprint(bytes: &[u8]) -> String {

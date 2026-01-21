@@ -57,6 +57,11 @@ impl AgentKey {
 
         normalized_fp.starts_with(normalized_prefix)
     }
+
+    /// Check if this is a security key (SK-*) that may require user presence
+    pub fn is_security_key(&self) -> bool {
+        self.key_type.starts_with("SK-")
+    }
 }
 
 impl fmt::Display for AgentKey {

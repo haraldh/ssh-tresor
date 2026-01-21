@@ -97,6 +97,7 @@ fn create_slot(agent: &mut AgentConnection, key: &AgentKey, master_key: &[u8; 32
 /// Decrypt a tresor blob using the SSH agent
 ///
 /// Tries all available keys in the agent and returns success if any slot matches.
+/// Security keys (SK-*) are tried last since they may require user presence.
 ///
 /// # Arguments
 /// * `blob` - The encrypted tresor blob
@@ -105,7 +106,10 @@ fn create_slot(agent: &mut AgentConnection, key: &AgentKey, master_key: &[u8; 32
 /// The decrypted plaintext data.
 pub fn decrypt(blob: &TresorBlob) -> Result<Vec<u8>> {
     let mut agent = AgentConnection::connect()?;
-    let keys = agent.list_keys()?;
+    let mut keys = agent.list_keys()?;
+
+    // Sort keys so security keys (SK-*) are tried last, as they may require user presence
+    keys.sort_by_key(|k| k.is_security_key());
 
     // Try each key in the agent
     for key in &keys {

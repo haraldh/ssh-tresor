@@ -153,13 +153,12 @@ impl AgentConnection {
                 fingerprint: fingerprint.to_string(),
             }),
             1 => Ok(matches.into_iter().next().unwrap()),
-            n => {
-                eprintln!(
-                    "Warning: {} keys match prefix '{}', using first match",
-                    n, fingerprint
-                );
-                Ok(matches.into_iter().next().unwrap())
-            }
+            n => Err(Error::KeyNotFound {
+                fingerprint: format!(
+                    "{} (ambiguous: {} keys match this prefix, please be more specific)",
+                    fingerprint, n
+                ),
+            }),
         }
     }
 

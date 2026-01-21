@@ -19,6 +19,7 @@ rand = "0.8"
 base64 = "0.22"
 clap = { version = "4", features = ["derive"] }
 thiserror = "2"
+zeroize = { version = "1.8", features = ["derive"] }
 md5 = "0.7"
 ssh-encoding = "0.2"
 

@@ -1,6 +1,9 @@
 use base64::{engine::general_purpose::STANDARD_NO_PAD, Engine};
 use clap::{Parser, Subcommand};
-use ssh_tresor::{agent, error, format::TresorBlob};
+use ssh_tresor::{
+    agent, error,
+    format::{TresorBlob, MAX_TRESOR_SIZE},
+};
 use std::fs;
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
@@ -300,14 +303,24 @@ fn cmd_list_keys(md5: bool) -> ssh_tresor::Result<()> {
 }
 
 fn read_input(path: Option<PathBuf>) -> ssh_tresor::Result<Vec<u8>> {
-    match path {
-        Some(p) if p.to_str() != Some("-") => Ok(fs::read(&p)?),
+    let buffer = match path {
+        Some(p) if p.to_str() != Some("-") => fs::read(&p)?,
         _ => {
-            let mut buffer = Vec::new();
-            io::stdin().read_to_end(&mut buffer)?;
-            Ok(buffer)
+            let mut buf = Vec::new();
+            io::stdin().read_to_end(&mut buf)?;
+            buf
         }
+    };
+
+    if buffer.len() > MAX_TRESOR_SIZE {
+        return Err(error::Error::InvalidFormat(format!(
+            "input too large: {} bytes, maximum {} bytes (100 MB)",
+            buffer.len(),
+            MAX_TRESOR_SIZE
+        )));
     }
+
+    Ok(buffer)
 }
 
 fn write_output(path: Option<PathBuf>, data: &[u8]) -> ssh_tresor::Result<()> {

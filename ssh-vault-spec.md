@@ -143,7 +143,7 @@ SHA256:def456... RSA-4096 work-laptop
 4. For each selected SSH key:
    a. Generate 32 random bytes as challenge
    b. Request SSH agent to sign the challenge
-   c. Derive slot key: `slot_key = SHA-256(signature)`
+   c. Derive slot key: `slot_key = HKDF-SHA256(signature, salt="ssh-tresor-v3", info="slot-key-derivation")`
    d. Generate 12 random bytes as slot nonce
    e. Encrypt master key using AES-256-GCM with slot key
 5. Generate 12 random bytes as data nonce
@@ -175,7 +175,9 @@ When requesting a signature from the agent:
 - For Ed25519 keys: Use default `ssh-ed25519`
 - For ECDSA keys: Use appropriate `ecdsa-sha2-*` variant
 
-## Wire Format (v2)
+## Wire Format (v3)
+
+**Note:** v3 uses HKDF-SHA256 for key derivation (v2 used plain SHA-256). v3 is not backwards-compatible with v2.
 
 ### Binary Format
 
@@ -183,7 +185,7 @@ When requesting a signature from the agent:
 +---------------------+
 | Magic (8 bytes)     |  "SSHTRESR" (0x53 0x53 0x48 0x54 0x52 0x45 0x53 0x52)
 +---------------------+
-| Version (1 byte)    |  0x02
+| Version (1 byte)    |  0x03
 +---------------------+
 | Slot count (1 byte) |  Number of key slots (1-255)
 +---------------------+
@@ -243,7 +245,8 @@ ssh-agent-client-rs = "1.1"   # SSH agent protocol client
 ssh-key = "0.6"               # SSH key types and fingerprinting
 ssh-encoding = "0.2"          # SSH wire format encoding
 aes-gcm = "0.10"              # AES-256-GCM encryption
-sha2 = "0.10"                 # SHA-256 for key derivation
+sha2 = "0.10"                 # SHA-256 for HKDF
+hkdf = "0.12"                 # HKDF-SHA256 for key derivation
 rand = "0.8"                  # Cryptographically secure random
 base64 = "0.22"               # Armored format encoding
 clap = { version = "4", features = ["derive"] }  # CLI parsing

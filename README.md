@@ -75,13 +75,25 @@ ssh-tresor add-key -k SHA256:newkey < secret.tresor > updated.tresor
 ssh-tresor remove-key -k SHA256:oldkey < secret.tresor > updated.tresor
 ```
 
-## Use Case
+## Use Cases
 
 Store encrypted credentials in config files, decrypted automatically when your SSH key is available:
 
 ```toml
 # ~/.config/meli/config.toml
 server_password_command = "ssh-tresor decrypt ~/.config/meli/imap.tresor"
+```
+
+Use with Claude Code to securely store your API key:
+
+```bash
+# Encrypt your API key
+echo -n "sk-ant-..." | ssh-tresor encrypt -a > ~/.config/claude/api-key.tresor
+
+# Configure Claude Code (~/.claude/settings.json)
+{
+  "apiKeyHelper": "ssh-tresor decrypt ~/.config/claude/api-key.tresor"
+}
 ```
 
 ## Wire Format (v3)

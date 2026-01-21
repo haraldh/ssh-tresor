@@ -279,6 +279,55 @@ test_decrypt_after_add_key() {
     [[ "$result" == "ok" ]]
 }
 
+# Test: add-key --all adds all available keys
+test_add_all_keys() {
+    # Start with single-key tresor
+    "$BINARY" encrypt -k "$KEY1_FP" < "$TEST_DIR/plaintext.txt" > "$TEST_DIR/tresor_for_all.bin"
+
+    # Add all keys
+    "$BINARY" add-key --all < "$TEST_DIR/tresor_for_all.bin" > "$TEST_DIR/tresor_all_added.bin" 2>/dev/null
+
+    # Verify it now has 3 slots
+    local output
+    output=$("$BINARY" list-slots < "$TEST_DIR/tresor_all_added.bin")
+    [[ "$output" == *"3 key slot"* ]]
+}
+
+# Test: add-key --all skips existing keys
+test_add_all_keys_skips_existing() {
+    # Start with tresor that already has all keys
+    "$BINARY" encrypt -k "$KEY1_FP" -k "$KEY2_FP" -k "$KEY3_FP" \
+        < "$TEST_DIR/plaintext.txt" > "$TEST_DIR/tresor_has_all.bin"
+
+    # Run add-key --all - should succeed but add 0 keys
+    "$BINARY" add-key --all < "$TEST_DIR/tresor_has_all.bin" > "$TEST_DIR/tresor_still_all.bin" 2> "$TEST_DIR/add_all_stderr.txt"
+
+    # Verify message says no keys added
+    grep -q "No new keys added" "$TEST_DIR/add_all_stderr.txt" && \
+    # Verify still has 3 slots
+    local output
+    output=$("$BINARY" list-slots < "$TEST_DIR/tresor_still_all.bin")
+    [[ "$output" == *"3 key slot"* ]]
+}
+
+# Test: add-key --all can decrypt with any key
+test_add_all_keys_decrypt() {
+    # Remove key1 and key2, keep only key3
+    ssh-add -d "$TEST_DIR/key1.pub" 2>/dev/null
+    ssh-add -d "$TEST_DIR/key2.pub" 2>/dev/null
+
+    # Should be able to decrypt with key3
+    local decrypted
+    decrypted=$("$BINARY" decrypt < "$TEST_DIR/tresor_all_added.bin")
+    local result=$([[ "$decrypted" == "$(cat "$TEST_DIR/plaintext.txt")" ]] && echo "ok" || echo "fail")
+
+    # Re-add keys
+    ssh-add "$TEST_DIR/key1" 2>/dev/null
+    ssh-add "$TEST_DIR/key2" 2>/dev/null
+
+    [[ "$result" == "ok" ]]
+}
+
 # Test: remove-key from tresor
 test_remove_key() {
     # Start with the tresor that has 2 keys
@@ -410,6 +459,9 @@ main() {
     # Key management tests
     run_test "add-key to tresor" test_add_key
     run_test "decrypt after add-key with new key" test_decrypt_after_add_key
+    run_test "add-key --all adds all keys" test_add_all_keys
+    run_test "add-key --all skips existing keys" test_add_all_keys_skips_existing
+    run_test "add-key --all decrypt with any key" test_add_all_keys_decrypt
     run_test "remove-key from tresor" test_remove_key
     run_test "decrypt after remove-key" test_decrypt_after_remove_key
 

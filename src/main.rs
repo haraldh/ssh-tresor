@@ -54,15 +54,19 @@ enum Commands {
         input: Option<PathBuf>,
 
         /// SSH key fingerprint to add
-        #[arg(short = 'k', long = "key", required = true)]
-        fingerprint: String,
+        #[arg(short = 'k', long = "key", conflicts_with = "all")]
+        fingerprint: Option<String>,
+
+        /// Add all available keys from the agent (skips existing keys and errors)
+        #[arg(short = 'a', long = "all", conflicts_with = "fingerprint")]
+        all: bool,
 
         /// Output file (default: stdout)
         #[arg(short, long)]
         output: Option<PathBuf>,
 
         /// Output as base64 with header/footer (default: preserve input format)
-        #[arg(short, long)]
+        #[arg(long)]
         armor: bool,
     },
 
@@ -112,9 +116,10 @@ fn main() -> ExitCode {
         Commands::AddKey {
             input,
             fingerprint,
+            all,
             output,
             armor,
-        } => cmd_add_key(input, &fingerprint, output, armor),
+        } => cmd_add_key(input, fingerprint.as_deref(), all, output, armor),
         Commands::RemoveKey {
             input,
             fingerprint,
@@ -180,10 +185,18 @@ fn cmd_decrypt(input: Option<PathBuf>, output: Option<PathBuf>) -> ssh_tresor::R
 
 fn cmd_add_key(
     input: Option<PathBuf>,
-    fingerprint: &str,
+    fingerprint: Option<&str>,
+    all: bool,
     output: Option<PathBuf>,
     armor: bool,
 ) -> ssh_tresor::Result<()> {
+    // Require either -k or -a
+    if fingerprint.is_none() && !all {
+        return Err(error::Error::InvalidFormat(
+            "either --key or --all must be specified".to_string(),
+        ));
+    }
+
     // Read input
     let encrypted = read_input(input)?;
 
@@ -195,8 +208,18 @@ fn cmd_add_key(
     // Parse the tresor blob
     let blob = TresorBlob::from_bytes(&encrypted)?;
 
-    // Add the new key
-    let new_blob = ssh_tresor::add_key(&blob, fingerprint)?;
+    // Add the new key(s)
+    let new_blob = if all {
+        let (blob, added) = ssh_tresor::add_all_keys(&blob)?;
+        if added == 0 {
+            eprintln!("No new keys added (all keys already present or unavailable)");
+        } else {
+            eprintln!("Added {} key(s)", added);
+        }
+        blob
+    } else {
+        ssh_tresor::add_key(&blob, fingerprint.unwrap())?
+    };
 
     // Serialize output (preserve format unless --armor specified)
     let output_data = if armor || was_armored {

@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.5.0](https://github.com/haraldh/ssh-tresor/compare/ssh-tresor-v0.4.0...ssh-tresor-v0.5.0) (2026-01-31)
+
+
+### Features
+
+* add completions subcommand for shell completions ([e76625d](https://github.com/haraldh/ssh-tresor/commit/e76625d88e34c1d202d9b9984d2467c3ac547993))
+* add trusted publishing workflow for crates.io ([2e1bfa2](https://github.com/haraldh/ssh-tresor/commit/2e1bfa29bd5ad5a60c3e0effd69851a67d455781))
+
 ## [0.4.0](https://github.com/haraldh/ssh-tresor/compare/ssh-tresor-v0.3.0...ssh-tresor-v0.4.0) (2026-01-21)
 
 

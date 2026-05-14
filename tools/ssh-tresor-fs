@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+#
+set -o nounset -o pipefail -o errexit
+
+prog=$(basename "$0")
+
+usage() {
+    cat >&2 <<EOF
+Usage: $prog <command> <base-dir>
+
+Manage a gocryptfs volume with ssh-tresor.
+
+Commands:
+  init <base-dir>    Initialize a new encrypted volume
+  mount <base-dir>   Mount the encrypted volume to <base-dir>/plaintext
+  umount <base-dir>  Unmount the encrypted volume
+EOF
+    exit "${1:-1}"
+}
+
+cmd_init() {
+    [[ ! -e "$base_dir" ]] || { echo "$prog init: '$base_dir' already exists" >&2; exit 1; }
+
+    [[ -n "${SSH_AUTH_SOCK:-}" ]] || { echo "$prog init: SSH_AUTH_SOCK is not set - start an ssh-agent first" >&2; exit 2; }
+    ssh-add -l &>/dev/null || { echo "$prog init: no keys loaded in ssh-agent - run ssh-add first" >&2; exit 2; }
+
+    mkdir -p "$cipher_dir"
+
+    local password; password=$(pwgen -s 64 1)
+    gocryptfs -init -passfile <(echo "$password") "$cipher_dir"
+    echo "$password" | ssh-tresor encrypt --armor > "$tresor_file"
+
+    echo '/plaintext/' > "${base_dir}/.gitignore"
+}
+
+cmd_mount() {
+    mkdir -p "$mountpoint"
+    ssh-tresor decrypt "$tresor_file" | gocryptfs -passfile /dev/stdin "$cipher_dir" "$mountpoint"
+}
+
+cmd_umount() {
+    fusermount -u "$mountpoint"
+}
+
+while getopts ':h' opt; do
+    case "$opt" in
+        h) usage 0 ;;
+        ?) echo "$prog: unknown option: -$OPTARG" >&2; usage ;;
+    esac
+done
+shift $((OPTIND - 1))
+
+[[ $# -ge 1 ]] || usage
+cmd="$1"; shift
+
+[[ $# -eq 1 ]] || { echo "$prog $cmd: expected <base-dir>" >&2; usage; }
+
+base_dir=$(realpath -m -- "$1")
+cipher_dir="${base_dir}/cipher"
+tresor_file="${base_dir}/cipher.pw.tresor"
+mountpoint="${base_dir}/plaintext"
+
+case "$cmd" in
+    init)   cmd_init ;;
+    mount)  cmd_mount ;;
+    umount) cmd_umount ;;
+    *)      echo "$prog: unknown command '$cmd'" >&2; usage ;;
+esac
